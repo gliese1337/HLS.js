@@ -355,12 +355,12 @@ var TSDemuxer = (function(){
 		return decode_pes(mem, ptr, len, pids, s, payload_start);
 	}
 
-	function demux_file(buffer, pids){
-		var ptr, length, n, l=188,
+	function demux_file(buffer, ptr, len, pids){
+		var length, n, l=188,
 			mem = new DataView(buffer);
 
 		for(ptr=0;true;ptr+=l){
-			length = buffer.byteLength - ptr;
+			length = len - ptr;
 			if(!length){ return 0; }
 			if(length<l){ return -1; } // incompleted TS packet
 
@@ -375,8 +375,14 @@ var TSDemuxer = (function(){
 		this.pids = {};
 	}
 
-	TSDemuxer.prototype.process = function(buffer){
-		demux_file(buffer, this.pids);
+	TSDemuxer.prototype.process = function(buffer, offset, len){
+		var n;
+		if(buffer instanceof ArrayBuffer){
+			n = demux_file(buffer, offset||0, len||buffer.byteLength, this.pids);
+		}else{
+			n = demux_file(buffer.buffer, buffer.byteOffset, buffer.byteLength, this.pids);
+		}
+		if(n !== 0){ throw new Error("Demuxing Error #"+(-n)); }
 	};
 
 	Object.defineProperties(TSDemuxer.prototype,{

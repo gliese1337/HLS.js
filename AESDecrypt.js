@@ -323,8 +323,10 @@ var AESDecryptor = (function(){
 			jobs[job](new Uint8Array(data.plain, data.offset, data.len));
 			delete jobs[job];
 		},false);
-		
+
 		this.worker = worker;
+		this.current_key = new Uint8Array(16);
+
 		if(args){ this.config(args); }
 
 		this.decrypt = function(cipher){
@@ -341,19 +343,30 @@ var AESDecryptor = (function(){
 			});
 		};
 	}
-	
+
+	function keys_differ(a, b){
+		var i;
+		if(!a){ return false; }
+		for(i = 0; i < 16; i++){
+			if(a[i] !== b[i]){ return true; }
+		}
+		return false;
+	}
+
 	AESDecryptor.prototype.config = function(args){
 		var key, iv;
 
 		if(args.key instanceof Uint8Array) key = args.key;
 		else if(args.key instanceof ArrayBuffer) key = new Uint8Array(args.key, 0, 16);
 		else if(args.key.buffer instanceof ArrayBuffer) key = new Uint8Array(args.key.buffer, args.key.byteOffset, 16);
+		if(!keys_differ(key, this.current_key)){ key = void 0; }
+		if(key){ this.current_key = key; }
 
 		if(args.iv instanceof Uint32Array) iv = args.iv;
 		else if(args.iv instanceof ArrayBuffer) iv = new Uint32Array(args.iv, 0, 4);
 		else if(args.iv.buffer instanceof ArrayBuffer) iv = new Uint32Array(args.iv.buffer, args.iv.byteOffset, 4);
 
-		this.worker.postMessage({key: key, iv: iv});
+		if(key || iv){ this.worker.postMessage({key: key, iv: iv}); }
 	};
 
 	return AESDecryptor;

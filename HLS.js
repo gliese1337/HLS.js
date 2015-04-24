@@ -4,6 +4,22 @@ var parseHLS = (function(){
 	var linePat = /^(#)?(EXT)?(.+?)$/mg,
 		attrSeparator = /(?:^|,)((?:[^=]*)=(?:"[^"]*"|[^,]*))/;
 
+	var keyPromises = {};
+	function getKeyPromise(url){
+		if(!keyPromises.hasOwnProperty(url)){
+			keyPromises[url] = new Promise(function(resolve){
+				var xhr = new XMLHttpRequest();
+				xhr.responseType = "arraybuffer";
+				xhr.addEventListener('load', function(){
+					resolve(this.response);
+				},false);
+				xhr.open("GET", url, true);
+				xhr.send();
+			});
+		}
+		return keyPromises[url];
+	}
+
 	function validateString(s){
 		if(!(s && s[0] === '"' && s[s.length-1] === '"')){ throw new Error("Expected Quoted String"); }
 		s = s.substr(1,s.length-2);
@@ -27,7 +43,7 @@ var parseHLS = (function(){
 		line.split(attrSeparator).forEach(function(s){
 			if(s === ''){ return; }
 			var p = s.split('=');
-			attrs[p[0].trim()] = attrs[p[1]];
+			attrs[p[0].trim()] = p[1].trim();
 		});
 		return attrs;
 	}
@@ -336,19 +352,19 @@ var parseHLS = (function(){
 				format = validateString(attrs.KEYFORMAT);
 			}
 
-			if(attrs.KEYFORMAT === void 0){
-				formatVersions = "1";
+			if(attrs.KEYFORMATVERSIONS === void 0){
+				versions = "1";
 			}else if(settings.version < 5){
-				throw new Error("KEYFORMAT attribute requires version 5 of greater.");
+				throw new Error("KEYFORMATVERSIONS attribute requires version 5 of greater.");
 			}else{
-				formatVersions = validateKeyFormats(attrs.KEYFORMAT);
+				versions = validateKeyFormats(attrs.KEYFORMATVERSIONS);
 			}
 
 			settings.encryption.format = format;
 			settings.encryption.formatSettings[format] = {
 				method: "AES-128",
 				key: key, iv: iv,
-				formatVersions: formatVersions
+				formatVersions: versions
 			};
 			break;
 		case "SAMPLE-AES":
@@ -389,6 +405,15 @@ var parseHLS = (function(){
 		return zeros.substr(hex.length)+hex;
 	}
 
+	function h2b(s){
+		var i, l = s.length,
+			b = new Uint8Array(Math.floor(l/2));
+		for(i = 0; i < l; i+=2){
+			b[i/2] = parseInt(s.substr(i,2),16);
+		}
+		return b.buffer;
+	}
+
 	function createSegment(line, settings){
 		var format = settings.encryption.format,
 			encSettings = settings.encryption.formatSettings[format],
@@ -401,10 +426,13 @@ var parseHLS = (function(){
 			duration: settings.duration,
 			offset: 0,
 			byteLen: NaN,
-			encryption: {
+			encryption: (encSettings.method === "NONE")?{
+				method: "NONE", key: null, iv: null,
+				format: "identity", formatVersions: "1"
+			}:{
 				method: encSettings.method,
-				key: encSettings.key,
-				iv: encSettings.iv || createIV(settings.sequenceNo),
+				key: getKeyPromise(encSettings.key),
+				iv: h2b(encSettings.iv || createIV(settings.sequenceNo)),
 				format: format,
 				formatVersions: encSettings.formatVersions
 			}
