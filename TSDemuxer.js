@@ -10,15 +10,13 @@ var TSDemuxer = (function(){
 		this.dts = 0;           // current MPEG stream DTS (presentation time for audio, decode time for video)
 		this.first_pts = 0;
 		this.last_pts = 0;
-		this.frame_rate = 0;    // current time for show frame in ticks (90 ticks = 1 ms, 90000/frame_rate=fps)
+		this.frame_rate = 0;    // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_rate=fps)
 		this.frame_num = 0;     // frame counter
 
-		this.bufs = [];         // ES output file
+		this.packets = [];
 		this.byteLength = 0;
+		this.payload = null;
 
-		this.nal_ctx = 0;
-		this.nal_frame_num = 0; // JVT NAL (h.264) frame counter
-		
 		Object.defineProperties(this,{
 			fps: {
 				get: function(){ return 90000/this.frame_rate; },
@@ -31,30 +29,49 @@ var TSDemuxer = (function(){
 		});
 	}
 
-	Stream.prototype.write = function(mem, ptr, len){
-		this.bufs.push(new Uint8Array(mem.buffer, ptr, len));
+	Stream.prototype.write = function(mem, ptr, len, pstart){
+		var packet_data,
+			payload = this.payload,
+			offset = 0;
+		if(pstart || payload === null){
+			// finalize previously accumulated packet
+			if(payload !== null){
+				if(payload.buffer.length === 1){
+					packet_data = payload.buffer[0];
+				}else{
+					packet_data = new Uint8Array(payload.buflen);
+					payload.buffer.forEach(function(b){
+						packet_data.set(b, offset);
+						offset += b.byteLength;
+					});
+				}
+				this.packets.push({
+					pts: payload.pts,
+					dts: payload.dts,
+					frame_rate: payload.frame_rate,
+					data: packet_data
+				});
+			}
+			// start new packet
+			this.payload = {
+				buffer: [new Uint8Array(mem.buffer, ptr, len)],
+				buflen: len,
+				pts: this.last_pts,
+				dts: this.dts,
+				frame_rate: this.frame_rate
+			};
+		}else{
+			payload.buffer.push(new Uint8Array(mem.buffer, ptr, len));
+			payload.buflen += len;
+		}
 		this.byteLength += len;
-	};
-
-	Stream.prototype.finalize = function(){
-		var offset = 0,
-			output = new Uint8Array(this.byteLength);
-		this.bufs.forEach(function(b){
-			output.set(b, offset);
-			offset += b.byteLength;
-		});
-		this.bufs = [];
-		this.byteLength = 0;
-		return output;
 	};
 
 	var pmt = {
 		mem: new DataView(new ArrayBuffer(512)),
 		ptr: 0, len: 0, offset: 0,
 		reset: function(l){ this.len=l; this.offset=0; }
-	};
-
-	var stream_type = {
+	}, stream_type = {
 		unknown     : 0,
 		audio       : 1,
 		video       : 2,
@@ -73,13 +90,6 @@ var TSDemuxer = (function(){
 	function get_stream(pids, pid){
 		if(!pids.hasOwnProperty(pid)){ pids[pid] = new Stream(); }
 		return pids[pid];
-	}
-
-	function get_media_type(type_id){
-		var tlist =
-			[ stream_type.unknown, stream_type.video, stream_type.video, stream_type.video,
-				stream_type.audio,stream_type.audio,stream_type.audio,stream_type.audio ];
-		return tlist[get_stream_type(type_id)];
 	}
 
 	function get_stream_type(type_id){
@@ -106,6 +116,13 @@ var TSDemuxer = (function(){
 		return stream_type.data;
 	}
 
+	function get_media_type(type_id){
+		var tlist =
+			[ stream_type.unknown, stream_type.video, stream_type.video, stream_type.video,
+				stream_type.audio,stream_type.audio,stream_type.audio,stream_type.audio ];
+		return tlist[get_stream_type(type_id)];
+	}
+
 	function decode_pts(mem, p){
 		var pts=((mem.getUint8(p)&0xe)<<29);
 		pts|=((mem.getUint8(p+1)&0xff)<<22);
@@ -128,7 +145,7 @@ var TSDemuxer = (function(){
 		if(len<8){ return -7; }
 
 		l=mem.getUint16(ptr+1);
-		if(l&0xb000!==0xb000){ return -8; }
+		if((l&0xb000)!==0xb000){ return -8; }
 
 		l&=0x0fff;
 		len-=3;
@@ -146,7 +163,7 @@ var TSDemuxer = (function(){
 			program=mem.getUint16(ptr);
 			pid=mem.getUint16(ptr+2);
 
-			if(pid&0xe000!==0xe000){ return -11; }
+			if((pid&0xe000)!==0xe000){ return -11; }
 
 			pid&=0x1fff;
 			ptr+=4;
@@ -175,7 +192,7 @@ var TSDemuxer = (function(){
 			if(len<12){ return -13; }
 
 			l=mem.getUint16(ptr+1);
-			if(l&0x3000!==0x3000){ return -14; }
+			if((l&0x3000)!==0x3000){ return -14; }
 
 			l=(l&0x0fff)+3;
 			if(l>512){ return -141; }
@@ -213,7 +230,7 @@ var TSDemuxer = (function(){
 
 			type=mem.getUint8(ptr);
 			pid=mem.getUint16(ptr+1);
-			if(pid&0xe000!==0xe000){ return -17; }
+			if((pid&0xe000)!==0xe000){ return -17; }
 
 			pid&=0x1fff;
 			ll=(mem.getUint16(ptr+3)&0x0fff)+5;
@@ -234,9 +251,9 @@ var TSDemuxer = (function(){
 		return 0;
 	}
 
-	function decode_pes(mem, ptr, len, pids, s, pstart){
+	function decode_pes(mem, ptr, len, s, pstart){
 		// PES (Packetized Elementary Stream)
-		var i, l, pts, dts, hlen, bitmap, stream_id;
+		var l, pts, dts, hlen, bitmap, stream_id;
 		if(pstart){
 			// PES header
 			if(len<6){ return -20; }
@@ -302,16 +319,7 @@ var TSDemuxer = (function(){
 		}
 
 		if(s.stream_id && s.content_type !== stream_type.unknown){
-			if(s.type===0x1b){       // JVT NAL (h.264)
-				for(i=0;i<len;i++){
-					s.nal_ctx=(s.nal_ctx<<8)+mem.getUint8(ptr+i);
-					if((s.nal_ctx&0xffffff1f)===0x00000109){ // NAL access unit
-						s.nal_frame_num++;
-					}
-				}
-			}
-
-			s.write(mem, ptr, len);
+			s.write(mem, ptr, len, pstart);
 		}
 
 		return 0;
@@ -352,7 +360,7 @@ var TSDemuxer = (function(){
 		if(s.type===0xff){
 			return decode_pmt(mem, ptr, len, pids, s, payload_start);
 		}
-		return decode_pes(mem, ptr, len, pids, s, payload_start);
+		return decode_pes(mem, ptr, len, s, payload_start);
 	}
 
 	function demux_file(buffer, ptr, len, pids){
@@ -366,7 +374,7 @@ var TSDemuxer = (function(){
 
 			n = demux_packet(mem, ptr, l, pids);
 			if(n){ return n; }  // invalid packet
-		};
+		}
 
 		return 0;
 	}
@@ -376,12 +384,9 @@ var TSDemuxer = (function(){
 	}
 
 	TSDemuxer.prototype.process = function(buffer, offset, len){
-		var n;
-		if(buffer instanceof ArrayBuffer){
-			n = demux_file(buffer, offset||0, len||buffer.byteLength, this.pids);
-		}else{
-			n = demux_file(buffer.buffer, buffer.byteOffset, buffer.byteLength, this.pids);
-		}
+		var n = (buffer instanceof ArrayBuffer)?
+				demux_file(buffer, offset||0, len||buffer.byteLength, this.pids):
+				demux_file(buffer.buffer, buffer.byteOffset, buffer.byteLength, this.pids);
 		if(n !== 0){ throw new Error("Demuxing Error #"+(-n)); }
 	};
 

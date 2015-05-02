@@ -5,20 +5,21 @@
 </head>
 <body class="loading" style="text-align: center">
 
-	<h1>HTTP Live Streaming<br/>JavaScript demo</h1>
+	<h1>HTTP Live Streaming<br/>JavaScript Tech Demo</h1>
 
 	<main>
 		<div id="video-streaming"><canvas id="canvas"></canvas></div>
 		<br />
+		<input type="text" id="manifest" value="http://d3sporhxbkob1v.cloudfront.net/bill/vod/sample-video/400k.m3u8" /><br/>
 		<button id="play">Play</button>
+		<button id="start" disabled>Start</button>
 		<button id="pause">Pause</button>
 	</main>
 
 	<script src="HLS.js"></script>
 	<script src="AESDecrypt.js"></script>
-	<script src="TSDemuxer.js"></script>
-	<script src="browser.js" data-hls="//s3.amazonaws.com/hummedia.manifests/0177882.m3u8"></script>
-	<!--<script src="browser.js" data-hls="//c.brightcove.com/services/mobile/streaming/index/rendition.m3u8?assetId=1614505040001"></script>-->
-	<!--<script src="browser.js" data-hls="//d3sporhxbkob1v.cloudfront.net/bill/vod/sample-video/400k.m3u8"></script>-->
+	<script src="browser.js"></script>
+	<!--//c.brightcove.com/services/mobile/streaming/index/rendition.m3u8?assetId=1614505040001-->
+	<!--//s3.amazonaws.com/hummedia.manifests/0177882.m3u8-->
 </body>
 </html>
