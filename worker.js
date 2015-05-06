@@ -1,15 +1,6 @@
-importScripts('./lib/require.js');
 importScripts('./TSDemuxer.js');
 importScripts('./SPSParser.js');
-//importScripts('./mp4_build.js');
 importScripts('./mp4_vanilla.js');
-
-require.config({
-	paths: {
-		jdataview: '//jdataview.github.io/dist/jdataview',
-		jbinary: '//jdataview.github.io/dist/jbinary'
-	}
-});
 
 function parseNALStream(bytes){
 	'use strict';
@@ -219,38 +210,28 @@ function audio_data(audio_stream){
 		
 		data: audioBuffer.subarray(0,audioSize)
 	};
-
 }
 
-require(['jbinary', './mp4'],
-	function(jBinary, MP4){
-		'use strict';
+addEventListener('message', function(event){
+	var mp4, msg = event.data,
+		dm = new TSDemuxer(),
+		audio_pes, video_pes,
+		streams, vdata, adata;
 
-		addEventListener('message', function(event){
-			var mp4, msg = event.data,
-				dm = new TSDemuxer(),
-				audio_pes, video_pes,
-				streams, vdata, adata;
+	dm.process(msg.buffer);
+	streams = dm.streams;
 
-			dm.process(msg.buffer);
-			streams = dm.streams;
+	audio_pes = streams.filter(function(s){ return s.content_type === 1; })[0];
+	video_pes = streams.filter(function(s){ return s.content_type === 2; })[0];
 
-			audio_pes = streams.filter(function(s){ return s.content_type === 1; })[0];
-			video_pes = streams.filter(function(s){ return s.content_type === 2; })[0];
+	adata = audio_data(audio_pes);
+	vdata = video_data(video_pes);
 
-			adata = audio_data(audio_pes);
-			vdata = video_data(video_pes);
+	mp4 = MP4_build(vdata, adata);
 
-			mp4 = MP4_build(vdata, adata, jBinary, MP4);
-
-			postMessage({
-				type: 'video',
-				index: msg.index,
-				original: msg.url,
-				url: URL.createObjectURL(mp4)
-			});
-		});
-
-		postMessage({type: 'ready'});
-	}
-);
+	postMessage({
+		index: msg.index,
+		original: msg.url,
+		url: URL.createObjectURL(mp4)
+	});
+});
