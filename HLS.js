@@ -125,7 +125,7 @@ var parseHLS = (function(){
 	function parseTag(line,settings){
 		var match;
 		//Media Segment Tags
-		match = /INF:(\d+(\.\d+)),.*/.exec(line);
+		match = /INF:(\d+(\.\d+)?),.*/.exec(line);
 		if(match){
 			parseInfTag(settings,match);
 			return;
@@ -259,9 +259,11 @@ var parseHLS = (function(){
 		}else{
 			settings.duration = parseFloat(match[1]);
 		}
+		/* //Brightcove violates this constraint
 		if(Math.round(settings.duration) > settings.targetDuration){
 			throw new Error("Segment duration cannot exceed Playlist Target Duration");
 		}
+		*/
 	}
 
 	function parseByterangeTag(settings,match){
