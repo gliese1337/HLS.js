@@ -1,423 +1,256 @@
 function add_atom(atom, sub_atom){
+	'use strict';
 	atom.size += sub_atom.size;
-	atom.boxes.push.apply(atom.box, subt_atom.box);
-}
-
-function MP4(raw_video, raw_audio){
-	var atom = {size: 0, box: []},
-		time = (new Date) - (new Date(1970, 0, 1) - new Date(1904, 0, 1)),
-		vid_trak, aud_trak;
-
-	vid_trak = make_vid_trak(raw_video);
-	vid_trak.byte_offset = 0x28;
-
-	aud_trak = make_aud_trak(raw_audio);
-	aud_trak.byte_offset = 0x28 + vid_trak.data.byteLength;
-
-	add_atom(atom, ftype());
-	add_atom(atom, mdat(vid_trak.data, aud_trak.data));
-	add_atom(atom, moov(t, [vid_trak, aud_trak]));
-	return new Blob(atom.box, {type: 'video/mp4'});
-}
-
-function make_vid_trak(raw_video){
-	var data, dataV, data8, end,
-		sps, sps_info, pps, width, height, 
-		frame_count, frame_sum, frame_rate,
-		duration, last_delta, sample_delta,
-		sizes = [], dts_diffs = [], dts_deltas = [],
-		access_indices = [], pts_dts_diffs = [],
-		samples = [], chunks = [], offset = 0;
-
-	raw_video.packets.forEach(function(packet){
-		var curSample = {
-			offset: offset,
-			pts: packet.pts,
-			dts: packet.dts,
-			isIDR: false
-		};
-
-		samples.push(curSample);
-		H264.parseNALStream(packet.data).forEach(function(nalUnit){
-			var size, cropping;
-			// collecting info from H.264 NAL units
-			switch(nalUnit[0] & 0x1F){
-			case 7:
-				if(!sps) {
-					sps = nalUnit;
-					sps_info = H264.parseSPS(nalUnit);
-					width = (sps_info.pic_width_in_mbs_minus_1 + 1) * 16;
-					height = (2 - sps_info.frame_mbs_only_flag) * (sps_info.pic_height_in_map_units_minus_1 + 1) * 16;
-
-					cropping = sps_info.frame_cropping;
-					if(cropping){
-						width -= 2 * (cropping.left + cropping.right);
-						height -= 2 * (cropping.top + cropping.bottom);
-					}
-				}
-				break;
-			case 8:
-				if(!pps){ pps = nalUnit; }
-				break;
-			case 5:
-				curSample.isIDR = true; /* falls through */
-			default:
-				size = nalUnit.byteLength;
-				offset += size + 4; //the +4 is for length fields
-				sizes.push(size);
-				chunks.push(nalUnit);
-			}
-		});
-	});
-
-	// consolidate H.264 data
-	data = new ArrayBuffer(offset);
-	data8 = new Uint8Array(data);
-	dataV = new DataView(data);
-	offset = 0;
-	chunks.forEach(function(chunk){
-		var size = chunk.byteLength;
-		/* "mdat" payload carries NAL units in length-data format,
-		 * which is different from the stream format used in MPEG-TS. */
-		dataV.setUint32(offset, size);
-		offset += 4;
-		data.set(chunk, offset);
-		offset += size;
-	});
-
-	// calculating PTS/DTS differences
-	samples.reduce(function(current,next){
-		var delta = next.dts - current.dts;
-		dts_deltas.push(delta);
-		if(delta){
-			frame_sum += delta;
-			frame_count++;
-		}
-	});
-
-	frame_rate = Math.round(frame_sum / frame_count);
-
-	// collect keyframes
-	samples.forEach(function(current, i){
-		if(current.isIDR){ accessIndices.push(i); }
-	});
-
-	// fix up duration & fill in missing deltas
-	dts_deltas.forEach(function(d, i){
-		if(d){ return; }
-		frame_sum += frame_rate;
-		dts_deltas[i] = frame_rate;
-	});
-
-	last_delta = 1/0; // consolidate DTS diffs
-	end = -1;
-	dts_deltas.forEach(function(delta){
-		if(delta !== last_delta){
-			dts_diffs.push({
-				sample_count: 1,
-				sample_delta: delta
-			});
-			last_delta = delta;
-			end++;
-		}else{
-			dts_diffs[end].sample_count++;
-		}
-	});
-
-	return {
-		type: 'v',
-		byte_offset: 0,
-		data: data,
-		width: width,
-		height: height,
-		pps: pps, sps: sps,
-		sps_info: sps_info,
-		duration: frame_sum,
-		frame_rate: frame_rate,
-		access_indices: access_indices,
-		dts_diffs: dts_diffs,
-		// calculate decode / presentation deltas
-		pts_dts_diffs: samples.map(function(current, i){
-			return {
-				first_chunk: i + 1,
-				sample_count: 1,
-				sample_offset: current.pts - current.dts
-			};
-		})
-	};
-}
-
-function make_aud_trak(raw_audio){
-	var len = raw_audio.byteLength,
-		data = new Uint8Array(len),
-		view = new DataView(data.buffer), 
-		max_audio_size, roffset, woffset,
-		sizes, word, data_length,
-		packet_length, header_length;
-
-	// make audio data contiguous
-	raw_audio.packets.forEach(function(packet){
-		data.set(packet.data);
-		offset += packet.data.length;
-	});
-
-	// compactify, removing ADTS headers
-	// http://wiki.multimedia.cx/index.php?title=ADTS
-
-	word = view.getUint32(2);
-	header_length = (view.getUint8(1)|1) ? 7 : 9;
-	packet_length = (word>>5)&0x1fff;
-	profile = (word >>> 30) + 1;
-	sampling_freq = (word >> 26) & 0xf;
-	channel_config = (word >> 22) & 0x7;
-
-	data_length = packet_length - header_length;
-	data.set(data.subarray(header_length, packet_length));
-	roffset = packet_length;
-	woffset = data_length;
-	max_audio_size = data_length;
-	sizes = [data_length];
-
-	while(roffset < len){
-		header_length = (view.getUint8(offset+1)&1) ? 7 : 9;
-		packet_length = (view.getUint32(offset+2)>>5)&0x1fff;
-		data_length = packet_length - header_length;
-		data.set(data.subarray(roffset+header_length, roffset+packet_length), woffset);
-		roffset += packet_length;
-		woffset += data_length;
-		sizes.push(data_length);
-		if(max_audio_size < data_length){
-			max_audio_size = data_length;
-		}
-	}
-
-	return {
-		type: 'a',
-		byte_offset: 0,
-		data: data.subarray(0, woffset),
-		duration: 90000 * raw_audio.length,
-		sizes: sizes,
-		max_audio_size: max_audio_size,
-		audio_profile: profile,
-		sampling_freq: sampling_freq,
-		channel_config: channel_config
-	};
+	atom.box.push.apply(atom.box, sub_atom.box);
 }
 
 function ftyp(){
-	return {
-		size: 32,
-		box: [new Uint32Array([
-			32, // box size
-			0x66747970, // 'ftyp'
-			0x69736f6d, //major brand 'isom'
-			512, //minor version
-			0x69736f6d, //isom
-			0x69736f32, //iso2
-			0x61766331, //avc1
-			0x6d703431 //mp41
-		]).buffer]
-	};
+	'use strict';
+	var buffer = new ArrayBuffer(32),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 32); // box size
+	view.setUint32(4, 0x66747970); // 'ftyp'
+	view.setUint32(8, 0x69736f6d); //major brand 'isom'
+	view.setUint32(12, 512); //minor version
+	view.setUint32(16, 0x69736f6d); //isom
+	view.setUint32(20, 0x69736f32); //iso2
+	view.setUint32(24, 0x61766331); //avc1
+	view.setUint32(28, 0x6d703431); //mp41
+
+	return {size: 32, box: [buffer]};
 }
 
 function mdat(tracks){
-	var l = tracks.reduce(function(p,n){ return p + n.byteLength; },8);
-	return {
-		size: l,
-		box: [new Uint32Array([
-			l, 0x6d646174 // box size, mdat
-		]).buffer].concat(tracks)
-	};
-}
+	'use strict';
+	var l = tracks.reduce(function(p,n){ return p + n.byteLength; },8),
+		buffer = new ArrayBuffer(8),
+		view = new DataView(buffer);
 
-function moov(t, tracks){
-	var atom, box, d;
-	d = Math.max.apply(Math,
-		track.map(function(trkdata){ return trkdata.duration; })
-	);
-	box = new Uint32Array([
-		0, 0x6d6f6f76, //size, moov
-		// mvhd sub-box
-		108, // box size
-		0x6d766864, // mvhd
-		0, //version & flags
-		t, t, // creation, modification time
-		90000, d, // timescale, duration
-		0x00010000, // rate = 1.0
-		0x01000000, // volume = 1.0 + reserved(16)
-		0, 0, // 64 bits reserved
-		// identity matrix:
-		0x00010000, 0, 0,
-		0, 0x00010000, 0,
-		0, 0, 0x40000000,
-		0,0,0,0,0,0, // predefined (32)[6]
-		tracks.length // next track id
-	]);
-
-	atom = {size: 116, box: [box.buffer]};
-	tracks.forEach(function(trkdata){ add_atom(atom, trak(time, trkdata)); });
-
-	box[0] = atom.size;
-	return atom;
-}
-
-function trak(time, trkdata){
-	var atom, box;
-	box = new Uint32Array([
-		0, 0x7472616b, // size, trak
-		// tkhd sub-box
-		92, 0x746b6864, // box size, tkhd
-		7, time, time, // version & flags, creation, modification time
-		trkdata.id, 0, trkdata.duration // track id, reserved, duration
-		0, 0, // reserved, layer(16) & alternate group(16)
-		0x01000000, // volume & more reserved
-		// identity matrix:
-		0x00010000, 0, 0,
-		0, 0x00010000, 0,
-		0, 0, 0x40000000,
-		(trkdata.w&0xffff)<<16, // 16.16 width, ignoring fractional part
-		(trkdata.h&0xffff)<<16 // 16.16 height, ignoring fractional part
-	]);
-
-	atom = {size: 100, box: [box.buffer]};
-	add_atom(atom, mdia(time, trkdata));
-
-	box[0] = atom.size;
-	return atom;
-}
-
-function mdia(time, trkdata){
-	var atom, box;
-	box = new Uint32Array([
-		0, 0x6d646961, // size, mdia
-		// mdhd sub-box
-		32, 0x6d646864, // box size, mdhd
-		0, t, t, // version & flags, creation, modification time
-		90000, d, // timescale, duration
-		0x55c40000 // 15-bit lang code 'und' & predefined = 0
-	]);
-
-	atom = {size: 40, box: [box.buffer]};
-	add_atom(atom, (trkdata.type==='v'?hdlr_vide:hdlr_soun)());
-	add_atom(atom, minf(trkdata));
-
-	box[0] = atom.size;
-	return atom;
+	view.setUint32(0, l);
+	view.setUint32(4, 0x6d646174); // mdat
+	return {size: l, box: [buffer].concat(tracks)};
 }
 
 function hdlr_vide(){
-	return {
-		size: 38,
-		box: [new Uint8Array([
-			0, 0, 0, 38, // size
-			104, 100, 108, 114, // hdlr
-			0, 0, 0, 0, 0, 0, 0, 0, // version, flags, predefined
-			118, 105, 100, 101, // vide
-			0,0,0,0, 0,0,0,0, 0,0,0,0, //reserved
-			86, 105, 100, 101, 111, 0 // 'Video'
-		]).buffer]
-	};
+	'use strict';
+	var buffer = new ArrayBuffer(38),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 38);
+	view.setUint32(4, 0x68646c72); // hdlr
+	view.setUint32(16, 0x76696465); // vide
+	view.setUint32(32, 0x56696465); // 'Vide'
+	view.setUint16(36, 0x6f00); // 'o\0'
+
+	return {size: 38, box: [buffer]};
 }
 
 function hdlr_soun(){
-	return {
-		size: 38,
-		box: [new Uint8Array([
-			0, 0, 0, 38, // size
-			104, 100, 108, 114, // hdlr
-			0, 0, 0, 0, 0, 0, 0, 0, // version, flags, predefined
-			115, 111, 117, 110, // soun
-			0,0,0,0, 0,0,0,0, 0,0,0,0, //reserved
-			65, 117, 100, 105, 111, 0 // 'Video'
-		]).buffer]
-	};
-}
+	'use strict';
+	var buffer = new ArrayBuffer(38),
+		view = new DataView(buffer);
 
-function minf(trkdata){
-	var box = new Uint32Array([0, 0x6d696e66]),
-		atom = {size: 8, box: [box.buffer]};
-	add_atom(atom, (trkdata.type === 'v'?vmhd:smhd)());
-	add_atom(atom, dinf());
-	add_atom(atom, stbl(trkdata));
+	view.setUint32(0, 38);
+	view.setUint32(4, 0x68646c72); // hdlr
+	view.setUint32(16, 0x736f756e); // soun
+	view.setUint32(32, 0x536f756e); // 'Soun'
+	view.setUint16(36, 0x6400); // 'd\0'
 
-	box[0] = atom.size;
-	return atom;
+	return {size: 38, box: [buffer]};
 }
 
 function vmhd(){
-	return {
-		size: 20,
-		box: new Uint32Array([
-			20, // box size
-			0x766d6864, // vmhd
-			1, 0, 0, // version & flags, graphicsmode(16) & opcolor(16)[3]
-		]).buffer]
-	};
+	'use strict';
+	var buffer = new ArrayBuffer(20),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 20);
+	view.setUint32(4, 0x766d6864); // vmhd
+	view.setUint32(8, 1); // version & flags
+	// graphicsmode(16) & opcolor(16)[3]
+
+	return {size: 20, box: [buffer]};
 }
 
 function smhd(){
-	return {
-		size: 16,
-		box: new Uint32Array([
-			16, // box size
-			0x736d6864, // smhd
-			0, 0 // version & flags, balance & reserved
-		]).buffer]
-	};
+	'use strict';
+	var buffer = new ArrayBuffer(16),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 16);
+	view.setUint32(4, 0x736d6864); // smhd
+	// version & flags, balance & reserved
+
+	return {size: 16, box: [buffer]};
 }
 
 function dinf(){
-	return {
-		size: 36,
-		box: [new Uint32Array([
-			36, 0x64696e66, // size, dinf
-			// Data Reference sub-box
-			28, 0x64726566, 0, 1, // size, dref, flags, entry count
-			//DataEntryUrl sub-box
-			12, 0x75726c20, 1 // size, 'url ', self-contained flag
-			//no url string in self-contained version
-		]).buffer]
-	};
+	'use strict';
+	var buffer = new ArrayBuffer(36),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 36);
+	view.setUint32(4, 0x64696e66); // dinf
+	// Data Reference sub-box
+	view.setUint32(8, 29);
+	view.setUint32(12, 0x64726566); // dref
+	// flags
+	view.setUint32(20, 1); // entry count
+	//DataEntryUrl sub-box
+	view.setUint32(24, 13);
+	view.setUint32(28, 0x75726c20); // 'url '
+	view.setUint32(32, 1); // self-contained flag
+	//no url string in self-contained version
+
+	return {size: 36, box: [buffer]};
 }
 
-function stbl(trkdata){
-	var box = new Uint32Array([0, 0x7374626c]),
-		atom = {size: 8, box: [box.buffer]};
+function stts(dts_diffs){
+	'use strict';
+	var i, j,
+		c = dts_diffs.length,
+		l = c * 8 + 16,
+		buffer = new ArrayBuffer(l),
+		view = new DataView(buffer);
 
-	add_atom(atom, stsd(trkdata));
+	view.setUint32(0, l); // size
+	view.setUint32(4, 0x73747473); // stts
+	//version & flags are zero
+	view.setUint32(12, c); // entry count
 
-	if(trkdata.type === 'v'){
-		add_atom(atom, stss(trkdata.access_indices));
-		add_atom(atom, ctts(trkdata.pts_dts_diffs));
+	for(i=0, j=16; i < c; i++, j+=8){
+		view.setUint32(j, dts_diffs[i].sample_count);
+		view.setUint32(j+4, dts_diffs[i].sample_delta);
 	}
 
-	add_atom(atom, stts(trkdata.dts_diffs));
-	add_atom(atom, stsc(trkdata.sizes.length));
-	add_atom(atom, stsz(trkdata.sizes));
-	add_atom(atom, stco(trkdata.byte_offset));
-
-	box[0] = atom.size;
-	return atom;
+	return {size: l, box: [buffer]};
 }
 
+function ctts(pd_diffs){
+	'use strict';
+	var i, j,
+		c = pd_diffs.length,
+		l = c * 8 + 16,
+		buffer = new ArrayBuffer(l),
+		view = new DataView(buffer);
 
-function stsd(trkdata){
-	var atom, box;
-	box = new ArrayBuffer([
-		0, 0x73747364, // size, stsd
-		0, 1 // version & flags, entry count
-	]);
+	view.setUint32(0, l); // size
+	view.setUint32(4, 0x63747473); // ctts
+	//version & flags are zero
+	view.setUint32(12, c); // entry count
 
-	atom = {size: 16, box: [box.buffer]};
-	add_atom(atom, (trkdata.type === 'v'?avc1:mp4a)(trkdata));
+	for(i=0, j=16; i < c; i++, j+=8){
+		view.setUint32(j, pd_diffs[i].sample_count);
+		view.setUint32(j+4, pd_diffs[i].sample_offset);
+	}
+	return {size: l, box: [buffer]};
+}
 
-	box[0] = atom.size;
-	return atom;
+function stss(indices){
+	'use strict';
+	var i, j, c = indices.length,
+		l = c * 4 + 16,
+		buffer = new ArrayBuffer(l),
+		view = new DataView(buffer);
+
+	view.setUint32(0, l); // size
+	view.setUint32(4, 0x73747373); // stss
+	//version & flags are zero
+	view.setUint32(12, c); // entry count
+
+	for(i=0, j=16; i < c; i++, j+=4){
+		view.setUint32(j, indices[i]);
+	}
+	return {size: l, box: [buffer]};
+}
+
+function stsz(sizes){
+	'use strict';
+	var i, j, c = sizes.length,
+		l = c * 4 + 20,
+		buffer = new ArrayBuffer(l),
+		view = new DataView(buffer);
+
+	view.setUint32(0, l); // size
+	view.setUint32(4, 0x7374737a); // stsz
+	//version & flags are zero
+	view.setUint32(16, c); // sample count
+
+	for(i=0, j=20; i < c; i++, j+=4){
+		view.setUint32(j, sizes[i]);
+	}
+	return {size: l, box: [buffer]};
+}
+
+function stsc(samples){
+	'use strict';
+	var buffer = new ArrayBuffer(28),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 28);
+	view.setUint32(4, 0x73747363); // stsc
+	view.setUint32(12, 1);
+	view.setUint32(16, 1);
+	view.setUint32(20, samples);
+	view.setUint32(24, 1);
+
+	return {size: 28, box: [buffer]};
+}
+
+function stco(offset){
+	'use strict';
+	var buffer = new ArrayBuffer(20),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 20);
+	view.setUint32(4, 0x7374636f); // stco
+	view.setUint32(12, 1);
+	view.setUint32(16, offset);
+
+	return {size: 20, box: [buffer]};
+}
+
+function avcC(trkdata){
+	'use strict';
+	var i, j,
+		sps = trkdata.sps,
+		pps = trkdata.pps,
+		spslen = sps.byteLength,
+		ppslen = pps.byteLength,
+		len = spslen + ppslen + 19,
+		spsInfo = trkdata.spsInfo,
+		buffer = new ArrayBuffer(len),
+		view = new DataView(buffer);
+
+	view.setUint32(0, len);
+	view.setUint32(4, 0x61766343); // avcC
+	view.setUint8(8, 1); // version
+	view.setUint8(9, spsInfo.profile_idc);
+	view.setUint8(10, spsInfo.profile_compatibility);
+	view.setUint8(11, spsInfo.level_idc);
+	view.setUint8(12, 0xff); // 6 bits reserved + lengthSizeMinus1
+
+	view.setUint8(13, 0xe1); // 3 bits reserved + SPS count
+	view.setUint16(14, spslen);
+	for(i = 0, j = 16; i < spslen; i++, j++){
+		view.setUint8(j, sps[i]);
+	}
+
+	view.setUint8(16+spslen, 1); // PPS count
+	view.setUint16(17+spslen, ppslen);
+	for(i = 0, j = 19+spslen; i < ppslen; i++, j++){
+		view.setUint8(j, pps[i]);
+	}
+
+	return {size: len, box: [buffer]};
 }
 
 function avc1(trkdata){
-	var atom, buffer = new ArrayBuffer(86),
-		view = new DataView(buffer);
+	'use strict';
+	var buffer = new ArrayBuffer(86),
+		view = new DataView(buffer),
+		atom = {size: 86, box: [buffer]};
 
 	view.setUint32(4, 0x61766331); // avc1
 	// six bytes reserved
@@ -434,15 +267,14 @@ function avc1(trkdata){
 	view.setUint16(82, 24); // bit depth
 	view.setInt16(84, -1); // predefined
 
-	atom = {size: 86, box: [buffer]};
-
-	//TODO: add avcC box
+	add_atom(atom, avcC(trkdata));
 
 	view.setUint32(0, atom.size);
 	return atom;
 }
 
 function mp4a(trkdata){
+	'use strict';
 	var atom, buffer = new ArrayBuffer(36),
 		view = new DataView(buffer);
 
@@ -456,7 +288,7 @@ function mp4a(trkdata){
 	// 4 bytes reserved
 	view.setUint32(32, 22050); // sample rate
 
-	atom = {size: 16, box: [box.buffer]};
+	atom = {size: 36, box: [buffer]};
 
 	//TODO: Add mp4a / esds box
 
@@ -464,87 +296,157 @@ function mp4a(trkdata){
 	return atom;
 }
 
+function stsd(trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(16),
+		view = new DataView(buffer),
+		atom = {size: 16, box: [buffer]};
 
-function stts(dtsDiffs){
-	var i, j,
-		c = dtsDiffs.length,
-		l = c * 2 + 4,
-		box = new Uint32Array(l);
+	view.setUint32(4, 0x73747364); // stsd
+	view.setUint32(12, 1); // entry count
 
-	box[0] = l*4; // size
-	box[1] = 0x73747473; // stts
-	//version & flags are zero
-	box[3] = c; // entry count
+	add_atom(atom, (trkdata.type === 'v'?avc1:mp4a)(trkdata));
 
-	for(i=0, j=4; i < c; i++, j+=2){
-		box[j] = dtsDiffs.sample_count;
-		box[j+1] = dtsDiffs.sample_delta;
+	view.setUint32(0, atom.size);
+	return atom;
+}
+
+function stbl(trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(8),
+		view = new DataView(buffer),
+		atom = {size: 8, box: [buffer]};
+
+	view.setUint32(4, 0x7374626c);
+
+	add_atom(atom, stsd(trkdata));
+	add_atom(atom, stts(trkdata.dts_diffs));
+	add_atom(atom, stsc(trkdata.sizes.length));
+	add_atom(atom, stsz(trkdata.sizes));
+	add_atom(atom, stco(trkdata.byte_offset));
+
+	if(trkdata.type === 'v'){
+		add_atom(atom, stss(trkdata.access_indices));
+		add_atom(atom, ctts(trkdata.pd_diffs));
 	}
-	return {size: l*4, box: [box.buffer]};
+
+	view.setUint32(0, atom.size);
+	return atom;
 }
 
-function ctts(pts_dts){
-	var i, j,
-		c = pts_dts.length,
-		l = c * 2 + 4,
-		box = new Uint32Array(l);
+function minf(trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(8),
+		view = new DataView(buffer),
+		atom = {size: 8, box: [buffer]};
 
-	box[0] = l*4; // size
-	box[1] = 0x63747473; // ctts
-	//version & flags are zero
-	box[3] = c; // entry count
+	view.setUint32(4, 0x6d696e66);
 
-	for(i=0, j=4; i < c; i++, j+=2){
-		box[j] = pts_dts[i].sample_count;
-		box[j+1] = pts_dts[i].sample_offset;
-	}
-	return {size: l*4, box: [box.buffer]};
+	add_atom(atom, (trkdata.type === 'v'?vmhd:smhd)());
+	add_atom(atom, dinf());
+	add_atom(atom, stbl(trkdata));
+
+	view.setUint32(0, atom.size);
+	return atom;
 }
 
-function stss(indices){
-	var c = indices.length,
-		l = c + 4,
-		box = new Uint32Array(l);
+function mdia(t, trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(40),
+		view = new DataView(buffer),
+		atom = {size: 40, box: [buffer]};
 
-	box[0] = l*4; // size
-	box[1] = 0x73747373; // stsz
-	// version & flags are zero
-	box[3] = c; // entry count
+	view.setUint32(4, 0x6d646961);
+	// mdhd sub-box
+	view.setUint32(8, 32);
+	view.setUint32(12, 0x6d646864); // mdhd
+	//view.setUint32(20, t); // creation time
+	//view.setUint32(24, t); // modification time
+	view.setUint32(28, 90000); // timescale
+	view.setUint32(32, trkdata.duration);
+	view.setUint32(36, 0x55c40000); // 15-bit lang code 'und' & predefined = 0
 
-	box.set(4, indices);
-	return {size: l*4, box: [box.buffer]};
+	add_atom(atom, (trkdata.type==='v'?hdlr_vide:hdlr_soun)());
+	add_atom(atom, minf(trkdata));
+
+	view.setUint32(0, atom.size);
+	return atom;
 }
 
-function stsz(sizes){
-	var c = sizes.length,
-		l = c + 4,
-		box = new Uint32Array(l);
+function trak(t, id, trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(100),
+		view = new DataView(buffer),
+		atom = {size: 100, box: [buffer]};
 
-	box[0] = l*4; // size
-	box[1] = 0x7374737a; // stsz
-	// version & flags are zero
-	box[3] = c; // entry count
+	view.setUint32(4, 0x7472616b); // trak
+	// tkhd sub-box
+	view.setUint32(8, 92);
+	view.setUint32(12, 0x746b6864); // tkhd
+	view.setUint32(16, 15); // version & flags
+	//view.setUint32(20, t); // creation time
+	//view.setUint32(24, t); // modification time
+	view.setUint32(28, id);
+	view.setUint32(36, trkdata.duration);
+	// reserved, layer(16) & alternate group(16)
+	view.setUint32(48, trkdata.type == 'v' ? 0 : 0x01000000); // volume & more reserved
+	// identity matrix:
+	view.setUint32(52, 0x01000000  );
+	view.setUint32(68, 0x00010000);
+	view.setUint32(88, 0x40000000);
+	view.setUint32(92, (trkdata.width&0xffff)<<16); // 16.16 width, ignoring fractional part
+	view.setUint32(96, (trkdata.height&0xffff)<<16); // 16.16 height, ignoring fractional part
 
-	box.set(sizes, 4);
-	return {size: l*4, box: [box.buffer]};
+	add_atom(atom, mdia(t, trkdata));
+
+	view.setUint32(0, atom.size);
+	return atom;
 }
 
-function stsc(samples){
-	return {
-		size: 28,
-		box: [new Uint32Array([
-			28, 0x73747363, // size, stsc
-			0, 1, 1, samples, 1
-		]).buffer]
-	};
+function moov(t, tracks){
+	'use strict';
+	var d, buffer = new ArrayBuffer(116),
+		view = new DataView(buffer),
+		atom = {size: 116, box: [buffer]};
+	
+	d = Math.max.apply(Math,
+		tracks.map(function(trkdata){ return trkdata.duration; })
+	);
+
+	view.setUint32(4, 0x6d6f6f76); // moov
+	// mvhd sub-box
+	view.setUint32(8, 108);
+	view.setUint32(12, 0x6d766864); // mvhd
+	view.setUint32(20, t); // creation time
+	view.setUint32(24, t); // modification time
+	view.setUint32(28, 90000); // timescale
+	view.setUint32(32, d); //duration
+	view.setUint32(36, 0x00010000); // rate = 1.0
+	view.setUint32(40, 0x01000000); // volume = 1.0 + reserved(16)
+	// 64 bits reserved
+	// identity matrix:
+	view.setUint32(52, 0x00010000);
+	view.setUint32(68, 0x00010000);
+	view.setUint32(84, 0x40000000);
+	// predefined (32)[6]
+	view.setUint32(112, tracks.length); // next track id
+
+	tracks.forEach(function(trkdata, i){ add_atom(atom, trak(t, i+1, trkdata)); });
+
+	view.setUint32(0, atom.size);
+	return atom;
 }
 
-function stco(offset){
-	return {
-		size: 20,
-		box: [new Uint32Array([
-			20, 0x7374636f, // size, stco
-			0, 1, offset
-		]).buffer]
-	};
+function MP4_build(vid_trak, aud_trak){
+	'use strict';
+	var atom = {size: 0, box: []},
+		time = new Date() - (new Date(1970, 0, 1) - new Date(1904, 0, 1));
+
+	vid_trak.byte_offset = 0x28;
+	aud_trak.byte_offset = 0x28 + vid_trak.data.byteLength;
+
+	add_atom(atom, ftyp());
+	add_atom(atom, mdat([vid_trak.data.buffer, /*, aud_trak.data.buffer*/]));
+	add_atom(atom, moov(time, [vid_trak/*, aud_trak*/]));
+	return new Blob(atom.box, {type: 'video/mp4'});
 }

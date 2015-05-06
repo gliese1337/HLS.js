@@ -1,7 +1,8 @@
 importScripts('./lib/require.js');
 importScripts('./TSDemuxer.js');
 importScripts('./SPSParser.js');
-importScripts('./mp4_build.js');
+//importScripts('./mp4_build.js');
+importScripts('./mp4_vanilla.js');
 
 require.config({
 	paths: {
@@ -42,6 +43,7 @@ function mergeDeltas(deltas, frame_rate){
 		if(delta !== last_delta){
 			current = {sample_count: 1, sample_delta: delta};
 			dts_diffs.push(current);
+			last_delta = delta;
 		}else{
 			current.sample_count++;
 		}
@@ -142,12 +144,13 @@ function video_data(video_stream){
 	dts_diffs = mergeDeltas(dts_deltas, frame_rate);
 
 	return {
+		type: 'v',
 		pps: pps, sps: sps,
 		spsInfo: spsInfo,
 		width: width, height: height,
 		sizes: sizes,
 		dts_diffs: dts_diffs,
-		accessIndices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
+		access_indices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
 								.filter(function(i){ return i !== -1; }),
 		pd_diffs: calcPDDiffs(samples),
 		frame_rate: frame_rate,
@@ -202,6 +205,7 @@ function audio_data(audio_stream){
 	}
 
 	return {
+		type: 'a',
 		profileMinusOne: profileMinusOne,
 		channelConfig: channelConfig,
 		samplingFreq: samplingFreq,
@@ -238,8 +242,8 @@ require(['jbinary', './mp4'],
 				type: 'video',
 				index: msg.index,
 				original: msg.url,
-				bytes: mp4
-			}, [mp4.buffer]);
+				url: URL.createObjectURL(mp4)
+			});
 		});
 
 		postMessage({type: 'ready'});

@@ -326,5 +326,5 @@ function MP4_build(vdata, adata, jBinary, MP4){
 		}]
 	});
 	
-	return mp4.slice(0, mp4.tell()).view.getBytes();
+	return new Blob([mp4.slice(0, mp4.tell()).view.getBytes()], {type: 'video/mp4'});
 }

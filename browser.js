@@ -8,6 +8,7 @@
 		context = canvas.getContext('2d'),
 		playbtn = document.getElementById('play'),
 		manifest = document.getElementById('manifest'),
+		downloads = document.getElementById('downloads'),
 		decryptor = new AESDecryptor();
 
 	// drawing new frame
@@ -39,6 +40,15 @@
 	}
 
 	playbtn.addEventListener('click', init, false);
+
+	function addDownload(url, name){
+		var a = document.createElement('a');
+		a.href = url;
+		a.textContent = name;
+		a.download = name;
+		downloads.appendChild(a);
+		downloads.appendChild(document.createElement('br'));
+	}
 
 	worker.addEventListener('message', function(event){
 		var video, data = event.data,
@@ -73,10 +83,11 @@
 					}
 				});
 
-				video.src = URL.createObjectURL(new Blob([data.bytes], {type: 'video/mp4'}));
+				addDownload(data.url, data.index+'.mp4');
+
+				video.src = data.url;
 				video.load();
 
-				console.log('converted ' + descriptor);
 				videos[data.index] = video;
 				if(videoIndex === videos.length - 1){
 					video.play();
