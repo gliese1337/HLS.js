@@ -93,12 +93,12 @@ function dinf(){
 	view.setUint32(0, 36);
 	view.setUint32(4, 0x64696e66); // dinf
 	// Data Reference sub-box
-	view.setUint32(8, 29);
+	view.setUint32(8, 28);
 	view.setUint32(12, 0x64726566); // dref
 	// flags
 	view.setUint32(20, 1); // entry count
 	//DataEntryUrl sub-box
-	view.setUint32(24, 13);
+	view.setUint32(24, 12);
 	view.setUint32(28, 0x75726c20); // 'url '
 	view.setUint32(32, 1); // self-contained flag
 	//no url string in self-contained version
@@ -273,24 +273,62 @@ function avc1(trkdata){
 	return atom;
 }
 
+function esds(trkdata){
+	'use strict';
+	var buffer = new ArrayBuffer(39),
+		view = new DataView(buffer),
+		freqIndex = trkdata.samplingFreqIndex,
+		objectType = trkdata.profileMinusOne + 1,
+		channelConf = trkdata.channelConfig;
+
+	view.setUint32(0, 39); // esds
+	view.setUint32(4, 0x65736473); // esds
+	//ES_Descriptor
+	view.setUint8(12, 3); // ES_DescrTag
+	view.setUint8(13, 34); // length
+	view.setUint16(15, 2); // ES_ID
+	// priority + flags byte = 0
+
+	//DecoderConfigDescriptor
+	view.setUint8(17, 4); // DecoderConfigDescrTag
+	view.setUint8(18, 20); // length
+	view.setUint8(19, 0x40); // objectTypeIndication = MPEG4 Audio ISO/IEC 14496-3
+	view.setUint8(20, 0x15); // streamType = 5 (Audio), upStream = 0, reserved = 0 
+	// 3 byte bufferSize = 0
+	view.setUint32(24, trkdata.maxBitrate);
+	view.setUint32(28, trkdata.avgBitrate);
+
+	// DecoderSpecificInfo
+	view.setUint8(32, 5); // DecSpecificInfoTag
+	view.setUint8(33, 2); // length
+	view.setUint16(34, (objectType<<11)|(freqIndex<<7)|(channelConf<<3));
+
+	// SLConfigDescriptor
+	view.setUint8(36, 6); //SLConfigDescrTag
+	view.setUint8(37, 1); // length
+	view.setUint8(38, 2); // MP4 = 2
+
+	return {size: 39, box: [buffer]};
+}
+
 function mp4a(trkdata){
 	'use strict';
-	var atom, buffer = new ArrayBuffer(36),
-		view = new DataView(buffer);
+	var buffer = new ArrayBuffer(36),
+		view = new DataView(buffer),
+		atom = {size: 36, box: [buffer]};
 
 	view.setUint32(4, 0x6d703461); // mp4a
 	// 6 bytes reserved
 	view.setUint16(14, 1); // data reference index
-	//AudioSampleEntry data
+	// AudioSampleEntry data
 	// 8 bytes reserved
 	view.setUint16(24, 2); // channel count
 	view.setUint16(26, 16); // sample size
 	// 4 bytes reserved
-	view.setUint32(32, 22050); // sample rate
+	view.setUint32(32, 22050<<16); // sample rate
 
-	atom = {size: 36, box: [buffer]};
-
-	//TODO: Add mp4a / esds box
+	// mp4a extends AudioSampleEntry with ESDBox
+	add_atom(atom, esds(trkdata));
 
 	view.setUint32(0, atom.size);
 	return atom;
@@ -446,7 +484,7 @@ function MP4_build(vid_trak, aud_trak){
 	aud_trak.byte_offset = 0x28 + vid_trak.data.byteLength;
 
 	add_atom(atom, ftyp());
-	add_atom(atom, mdat([vid_trak.data.buffer, /*, aud_trak.data.buffer*/]));
-	add_atom(atom, moov(time, [vid_trak/*, aud_trak*/]));
+	add_atom(atom, mdat([vid_trak.data.buffer, aud_trak.data.buffer]));
+	add_atom(atom, moov(time, [vid_trak, aud_trak]));
 	return new Blob(atom.box, {type: 'video/mp4'});
 }

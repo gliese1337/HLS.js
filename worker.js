@@ -163,14 +163,13 @@ function video_data(video_stream){
 
 function audio_data(audio_stream){
 	'use strict';
-	var audioPackets = audio_stream.packets.map(function(p){ return p.data; }),
+	var duration = audio_stream.length,
+		audioPackets = audio_stream.packets.map(function(p){ return p.data; }),
 		audioBuffer = new Uint8Array(audio_stream.byteLength),
 		audioView = new DataView(audioBuffer.buffer),
-		audioSize = 0, audioSizes, maxAudioSize,
-		profileMinusOne, samplingFreq, channelConfig,
-		roffset, woffset, word,
-		data_length, packet_length, header_length,
-		freqs = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+		audioSize = 0, maxAudioSize, profileMinusOne, samplingFreq, channelConfig,
+		data_length, packet_length, header_length, sizes,
+		woffset, roffset, word, frames;
 
 	audioPackets.forEach(function(packet){
 		audioBuffer.set(packet, audioSize);
@@ -181,7 +180,7 @@ function audio_data(audio_stream){
 	header_length = (audioView.getUint8(1)|1) ? 7 : 9;
 	packet_length = (word>>5)&0x1fff;
 	profileMinusOne = (word >>> 30);
-	samplingFreq = freqs[(word >> 26) & 0xf];
+	samplingFreq = (word >> 26) & 0xf;
 	channelConfig = (word >> 22) & 0x7;
 
 	data_length = packet_length - header_length;
@@ -189,16 +188,16 @@ function audio_data(audio_stream){
 	roffset = packet_length;
 	woffset = data_length;
 	maxAudioSize = data_length;
-	audioSizes = [data_length];
+	sizes = [data_length];
 
-	while(roffset < audioSize){
+	for(frames = 0; roffset < audioSize; frames++){
 		header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
 		packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
 		data_length = packet_length - header_length;
 		audioBuffer.set(audioBuffer.subarray(roffset+header_length, roffset+packet_length), woffset);
 		roffset += packet_length;
 		woffset += data_length;
-		audioSizes.push(data_length);
+		sizes.push(data_length);
 		if(maxAudioSize < data_length){
 			maxAudioSize = data_length;
 		}
@@ -208,11 +207,17 @@ function audio_data(audio_stream){
 		type: 'a',
 		profileMinusOne: profileMinusOne,
 		channelConfig: channelConfig,
-		samplingFreq: samplingFreq,
-		audioSize: audioSize,
+		samplingFreqIndex: samplingFreq,
 		maxAudioSize: maxAudioSize,
-		audioSizes: audioSizes,
-		data: audioBuffer.subarray(0,woffset)
+		maxBitrate: Math.round(maxAudioSize * frames / duration),
+		avgBitrate: Math.round(audioSize / duration),
+		sizes: sizes,
+		dts_diffs: [{
+			sample_count: frames,
+			sample_delta: duration / frames
+		}],
+		
+		data: audioBuffer.subarray(0,audioSize)
 	};
 
 }
