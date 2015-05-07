@@ -1,6 +1,6 @@
 importScripts('./TSDemuxer.js');
 importScripts('./SPSParser.js');
-importScripts('./mp4_vanilla.js');
+importScripts('./MP4Muxer.js');
 
 function parseNALStream(bytes){
 	'use strict';
@@ -207,31 +207,22 @@ function audio_data(audio_stream){
 			sample_count: frames,
 			sample_delta: duration / frames
 		}],
-		
+
 		data: audioBuffer.subarray(0,audioSize)
 	};
 }
 
 addEventListener('message', function(event){
-	var mp4, msg = event.data,
-		dm = new TSDemuxer(),
-		audio_pes, video_pes,
-		streams, vdata, adata;
+	var streams, tracks = [],
+		msg = event.data;
 
-	dm.process(msg.buffer);
-	streams = dm.streams;
-
-	audio_pes = streams.filter(function(s){ return s.content_type === 1; })[0];
-	video_pes = streams.filter(function(s){ return s.content_type === 2; })[0];
-
-	adata = audio_data(audio_pes);
-	vdata = video_data(video_pes);
-
-	mp4 = MP4_build(vdata, adata);
+	streams = (new TSDemuxer()).process(msg.buffer);
+	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0])); }
+	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
 
 	postMessage({
 		index: msg.index,
 		original: msg.url,
-		url: URL.createObjectURL(mp4)
+		url: URL.createObjectURL(MP4(tracks))
 	});
 });

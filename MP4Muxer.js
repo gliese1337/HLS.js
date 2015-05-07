@@ -23,13 +23,14 @@ function ftyp(){
 
 function mdat(tracks){
 	'use strict';
-	var l = tracks.reduce(function(p,n){ return p + n.byteLength; },8),
+	var datas = tracks.map(function(track){ return track.data.buffer; }),
+		length = datas.reduce(function(p,n){ return p + n.byteLength; },8),
 		buffer = new ArrayBuffer(8),
 		view = new DataView(buffer);
 
-	view.setUint32(0, l);
+	view.setUint32(0, length);
 	view.setUint32(4, 0x6d646174); // mdat
-	return {size: l, box: [buffer].concat(tracks)};
+	return {size: length, box: [buffer].concat(datas)};
 }
 
 function hdlr_vide(){
@@ -475,16 +476,18 @@ function moov(t, tracks){
 	return atom;
 }
 
-function MP4_build(vid_trak, aud_trak){
+function MP4(tracks){
 	'use strict';
-	var atom = {size: 0, box: []},
-		time = new Date() - (new Date(1970, 0, 1) - new Date(1904, 0, 1));
+	var offset = 0x28,
+		atom = {size: 0, box: []};
 
-	vid_trak.byte_offset = 0x28;
-	aud_trak.byte_offset = 0x28 + vid_trak.data.byteLength;
+	tracks.forEach(function(track){
+		track.byte_offset = offset;
+		offset += track.data.byteLength;
+	});
 
 	add_atom(atom, ftyp());
-	add_atom(atom, mdat([vid_trak.data.buffer, aud_trak.data.buffer]));
-	add_atom(atom, moov(time, [vid_trak, aud_trak]));
+	add_atom(atom, mdat(tracks));
+	add_atom(atom, moov(0, tracks));
 	return new Blob(atom.box, {type: 'video/mp4'});
 }

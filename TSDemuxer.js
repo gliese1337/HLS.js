@@ -388,23 +388,17 @@ var TSDemuxer = (function(){
 				demux_file(buffer, offset||0, len||buffer.byteLength, this.pids):
 				demux_file(buffer.buffer, buffer.byteOffset, buffer.byteLength, this.pids);
 		if(n !== 0){ throw new Error("Demuxing Error #"+(-n)); }
+		return this.streams;
 	};
 
 	Object.defineProperties(TSDemuxer.prototype,{
 		streams: {
 			get: function(){
-				var p = this.pids;
-				return Object.keys(p).map(function(id){ return p[id]; });
-			}, enumerable: true
-		},
-		audio: {
-			get: function(){
-				return this.streams.filter(function(s){ return s.content_type === 1; });
-			}, enumerable: true
-		},
-		video: {
-			get: function(){
-				return this.streams.filter(function(s){ return s.content_type === 2; });
+				var p = this.pids, ss = {};
+				Object.keys(p).forEach(function(id){
+					ss[p[id].stream_id] = p[id];
+				});
+				return ss;
 			}, enumerable: true
 		}
 	});
