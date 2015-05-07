@@ -222,7 +222,6 @@ addEventListener('message', function(event){
 
 	postMessage({
 		index: msg.index,
-		original: msg.url,
 		url: URL.createObjectURL(MP4(tracks))
 	});
 });

@@ -37,9 +37,18 @@ var HLSPlayer = (function(){
 	}
 
 	function getSegment(player, index){
-		if(index === player.segments.length){ return; }
-		var seg = player.segments[index],
-			url = resolveURL(player.baseURL, seg.uri);
+		var seg, url, p;
+		if(index >= player.segments.length){ return Promise.reject(null); }
+		if(player.videos[index]){ return player.videos[index]; }
+		
+		p = new Promise(function(resolve, reject){
+			player.resolvers[index] = resolve;
+		});
+
+		player.videos[index] = p;
+		seg = player.segments[index];
+		url = resolveURL(player.baseURL, seg.uri);
+
 		(new Promise(function(resolve){
 			var xhr = new XMLHttpRequest();
 			xhr.responseType = "arraybuffer";
@@ -50,26 +59,31 @@ var HLSPlayer = (function(){
 			xhr.send();
 		})).then(function(arrbuffer){
 			var data = new Uint8Array(arrbuffer);
-			if(seg.encryption.method === "AES-128"){
-				return seg.encryption.key.then(function(keybuffer){
-					player.decryptor.config({key: keybuffer, iv: seg.encryption.iv});
-					return player.decryptor.decrypt(data);
-				});
-			}
-			return data;
+			if(seg.encryption.method !== "AES-128"){ return data; }
+			return seg.encryption.key.then(function(keybuffer){
+				player.decryptor.config({key: keybuffer, iv: seg.encryption.iv});
+				return player.decryptor.decrypt(data);
+			});
 		}).then(function(data){
-			player.worker.postMessage({buffer: data, url: url, index: index}, [data.buffer]);
+			player.worker.postMessage({
+				buffer: data,
+				index: index
+			}, [data.buffer]);
 		});
+
+		return p;
 	}
 
 	function addVideo(event){
 		var that = this,
 			data = event.data,
+			index = data.index,
 			canvas = this.canvas,
 			ctx = this.ctx,
+			base = this.baseTimes[index],
 			video = document.createElement('video');
 
-		console.log('Loaded', data.index);
+		console.log('Loaded', index);
 
 		video.addEventListener('loadedmetadata', function(){
 			if(canvas.width !== this.videoWidth || canvas.height !== this.videoHeight){
@@ -79,17 +93,23 @@ var HLSPlayer = (function(){
 		});
 
 		video.addEventListener('play', function(){ nextFrame(ctx, this); }, false);
+		video.addEventListener('timeupdate', function(){
+			that.setTime(base + video.currentTime);
+		}, false);
+
 		video.addEventListener('ended', function(){
-			that.videoIndex++;
-			if(that.videos[that.videoIndex]){
-				that.videos[that.videoIndex].play();
-			}
+			that.index++;
+			getSegment(that, that.index).then(function(video){
+				if(!that.paused){ video.play(); }
+			});
 		});
 
-		if(!this.videos[data.index+1]){
+		if(!that.loaded[index+1]){
 			video.addEventListener('timeupdate', function checkRemaining(){
-				if(this.duration - this.currentTime > 5){ return; }
-				getSegment(that, data.index+1);
+				if(!that.loaded[index+1]){
+					if(this.duration - this.currentTime > 5){ return; }
+					getSegment(that, index+1);
+				}
 				this.removeEventListener('timeupdate', checkRemaining, false);
 			}, false);
 		}
@@ -97,32 +117,90 @@ var HLSPlayer = (function(){
 		video.src = data.url;
 		video.load();
 
-		this.videos[data.index] = video;
-		if(data.index === 0){
-			this.readyState = 4;
-			this.emit('ready');
-		}
+		this.loaded[index] = true;
+		this.resolvers[index](video);
 	}
 
 	function HLSPlayer(canvas, manifestURL){
 		var that = this,
+			currentTime = 0,
 			worker = new Worker('worker.js');
 		worker.addEventListener('message', addVideo.bind(this), false);
 
 		this.handlers = {};
 		this.worker = worker;
-		this.baseURL = manifestURL
-		this.videos = [];
-		this.videoIndex = 0;
+		this.baseURL = manifestURL;
+		this.index = 0;
 		this.canvas = canvas;
 		this.ctx = canvas.getContext('2d');
 		this.decryptor = new AESDecryptor();
-		this.segments = [];
-		this.readyState = 0;
 		
+		this.resolvers = {};
+		this.videos = {};
+		this.loaded = {};
+		this.segments = [];
+		this.baseTimes = [];
+
+		this.paused = true;
+		this.duration = 0;
+		this.readyState = 0;
+
+		Object.defineProperties(this,{
+			setTime: { value: function(t){ currentTime = t; } },
+			currentTime: {
+				get: function(){ return currentTime; },
+				set: function(t){
+					var i, d,
+						segs = this.segments,
+						len = segs.length;
+
+					t = +t||0;
+					currentTime = t;
+
+					end: {
+						for(i = 0; i < len; i++){
+							d = segs[i].duration;
+							if(d > t){ break end; }
+							t -= d;
+						}
+
+						t = d;
+						i = len - 1;
+						currentTime = baseTime;
+					}
+
+					if(!this.paused){
+						getSegment(this, this.index)
+							.then(function(video){ video.pause(); });
+					}
+
+					this.index = i;
+					getSegment(this, i).then(function(video){
+						video.currentTime = t;
+						if(!this.paused){ video.play(); }
+					});
+
+					return currentTime;
+				}
+			}
+		});
+
 		getManifest(manifestURL).then(function(segments){
+			var times = [], b = 0;
+
+			segments.forEach(function(s){
+				times.push(s.duration);
+				b += s.duration;
+			});
+
+			that.baseTimes = times;
 			that.segments = segments;
-			getSegment(that, 0);
+			that.duration = b;
+
+			return getSegment(that, 0);
+		}).then(function(video){
+			that.readyState = 4;
+			that.emit('ready');
 		});
 	}
 
@@ -139,12 +217,22 @@ var HLSPlayer = (function(){
 	};
 
 	HLSPlayer.prototype.play = function(){
-		this.videos[this.videoIndex].play();
+		var that = this;
+		if(!this.paused){ return; }
+		getSegment(this, this.index).then(function(video){
+			that.paused = false;
+			video.play();
+		});
 	}
 
 
 	HLSPlayer.prototype.pause = function(){
-		this.videos[this.videoIndex].pause();
+		var that = this;
+		if(this.paused){ return; }
+		getSegment(this, this.index).then(function(video){
+			that.paused = true;
+			video.pause();
+		});
 	}
 
 	return HLSPlayer;
