@@ -10,7 +10,7 @@ var TSDemuxer = (function(){
 		this.dts = 0;           // current MPEG stream DTS (presentation time for audio, decode time for video)
 		this.first_pts = 0;
 		this.last_pts = 0;
-		this.frame_rate = 0;    // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_rate=fps)
+		this.frame_ticks = 0;    // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_ticks=fps)
 		this.frame_num = 0;     // frame counter
 
 		this.packets = [];
@@ -19,11 +19,11 @@ var TSDemuxer = (function(){
 
 		Object.defineProperties(this,{
 			fps: {
-				get: function(){ return 90000/this.frame_rate; },
+				get: function(){ return 90000/this.frame_ticks; },
 				enumerable: true
 			},
 			length: {
-				get: function(){ return (this.last_pts+this.frame_rate-this.first_pts)/90000; },
+				get: function(){ return (this.last_pts+this.frame_ticks-this.first_pts)/90000; },
 				enumerable: true
 			}
 		});
@@ -48,7 +48,7 @@ var TSDemuxer = (function(){
 				this.packets.push({
 					pts: payload.pts,
 					dts: payload.dts,
-					frame_rate: payload.frame_rate,
+					frame_ticks: payload.frame_ticks,
 					data: packet_data
 				});
 			}
@@ -58,7 +58,7 @@ var TSDemuxer = (function(){
 				buflen: len,
 				pts: this.last_pts,
 				dts: this.dts,
-				frame_rate: this.frame_rate
+				frame_ticks: this.frame_ticks
 			};
 		}else{
 			payload.buffer.push(new Uint8Array(mem.buffer, ptr, len));
@@ -284,7 +284,7 @@ var TSDemuxer = (function(){
 				case 0x80:  // PTS only
 					if(hlen>=8){
 						pts=decode_pts(mem, ptr+3);
-						if(s.dts>0 && pts>s.dts){ s.frame_rate=pts-s.dts; }
+						if(s.dts>0 && pts>s.dts){ s.frame_ticks=pts-s.dts; }
 
 						s.dts=pts;
 						if(pts>s.last_pts){ s.last_pts=pts; }
@@ -297,7 +297,7 @@ var TSDemuxer = (function(){
 					if(hlen>=13){
 						pts=decode_pts(mem, ptr+3);
 						dts=decode_pts(mem, ptr+8);
-						if(s.dts>0 && dts>s.dts){ s.frame_rate=dts-s.dts; }
+						if(s.dts>0 && dts>s.dts){ s.frame_ticks=dts-s.dts; }
 
 						s.dts=dts;
 						if(pts>s.last_pts){ s.last_pts=pts; }

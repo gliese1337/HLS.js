@@ -33,57 +33,43 @@ function mdat(tracks){
 	return {size: length, box: [buffer].concat(datas)};
 }
 
-function hdlr_vide(){
-	'use strict';
-	var buffer = new ArrayBuffer(38),
-		view = new DataView(buffer);
-
-	view.setUint32(0, 38);
-	view.setUint32(4, 0x68646c72); // hdlr
-	view.setUint32(16, 0x76696465); // vide
-	view.setUint32(32, 0x56696465); // 'Vide'
-	view.setUint16(36, 0x6f00); // 'o\0'
-
-	return {size: 38, box: [buffer]};
-}
-
-function hdlr_soun(){
-	'use strict';
-	var buffer = new ArrayBuffer(38),
-		view = new DataView(buffer);
-
-	view.setUint32(0, 38);
-	view.setUint32(4, 0x68646c72); // hdlr
-	view.setUint32(16, 0x736f756e); // soun
-	view.setUint32(32, 0x536f756e); // 'Soun'
-	view.setUint16(36, 0x6400); // 'd\0'
-
-	return {size: 38, box: [buffer]};
-}
-
-function vmhd(){
+function hdlr(trkdata){
 	'use strict';
 	var buffer = new ArrayBuffer(20),
 		view = new DataView(buffer);
 
 	view.setUint32(0, 20);
-	view.setUint32(4, 0x766d6864); // vmhd
-	view.setUint32(8, 1); // version & flags
-	// graphicsmode(16) & opcolor(16)[3]
+	view.setUint32(4, 0x68646c72); // hdlr
+	trkdata.type==='v'?
+		view.setUint32(16, 0x76696465): // vide
+		view.setUint32(16, 0x736f756e); // soun
 
 	return {size: 20, box: [buffer]};
 }
 
-function smhd(){
+function vmhd(){
 	'use strict';
-	var buffer = new ArrayBuffer(16),
+	var buffer = new ArrayBuffer(12),
 		view = new DataView(buffer);
 
-	view.setUint32(0, 16);
+	view.setUint32(0, 12);
+	view.setUint32(4, 0x766d6864); // vmhd
+	view.setUint32(8, 1); // version & flags
+	// graphicsmode(16) & opcolor(16)[3]
+
+	return {size: 12, box: [buffer]};
+}
+
+function smhd(){
+	'use strict';
+	var buffer = new ArrayBuffer(8),
+		view = new DataView(buffer);
+
+	view.setUint32(0, 8);
 	view.setUint32(4, 0x736d6864); // smhd
 	// version & flags, balance & reserved
 
-	return {size: 16, box: [buffer]};
+	return {size: 8, box: [buffer]};
 }
 
 function dinf(){
@@ -366,7 +352,9 @@ function stbl(trkdata){
 
 	if(trkdata.type === 'v'){
 		add_atom(atom, stss(trkdata.access_indices));
-		add_atom(atom, ctts(trkdata.pd_diffs));
+		if(trkdata.pd_diffs.length){
+			add_atom(atom, ctts(trkdata.pd_diffs));
+		}
 	}
 
 	view.setUint32(0, atom.size);
@@ -389,7 +377,7 @@ function minf(trkdata){
 	return atom;
 }
 
-function mdia(t, trkdata){
+function mdia(trkdata){
 	'use strict';
 	var buffer = new ArrayBuffer(40),
 		view = new DataView(buffer),
@@ -401,18 +389,18 @@ function mdia(t, trkdata){
 	view.setUint32(12, 0x6d646864); // mdhd
 	//view.setUint32(20, t); // creation time
 	//view.setUint32(24, t); // modification time
-	view.setUint32(28, 90000); // timescale
-	view.setUint32(32, trkdata.duration);
+	view.setUint32(28, trkdata.timescale);
+	view.setUint32(32, Math.round(trkdata.duration*trkdata.timescale));
 	view.setUint32(36, 0x55c40000); // 15-bit lang code 'und' & predefined = 0
 
-	add_atom(atom, (trkdata.type==='v'?hdlr_vide:hdlr_soun)());
+	add_atom(atom, hdlr(trkdata));
 	add_atom(atom, minf(trkdata));
 
 	view.setUint32(0, atom.size);
 	return atom;
 }
 
-function trak(t, id, trkdata){
+function trak(id, trkdata){
 	'use strict';
 	var buffer = new ArrayBuffer(100),
 		view = new DataView(buffer),
@@ -426,7 +414,7 @@ function trak(t, id, trkdata){
 	//view.setUint32(20, t); // creation time
 	//view.setUint32(24, t); // modification time
 	view.setUint32(28, id);
-	view.setUint32(36, trkdata.duration);
+	view.setUint32(36, trkdata.duration*1000); //or all 1s
 	// reserved, layer(16) & alternate group(16)
 	view.setUint32(48, trkdata.type == 'v' ? 0 : 0x01000000); // volume & more reserved
 	// identity matrix:
@@ -436,13 +424,13 @@ function trak(t, id, trkdata){
 	view.setUint32(92, (trkdata.width&0xffff)<<16); // 16.16 width, ignoring fractional part
 	view.setUint32(96, (trkdata.height&0xffff)<<16); // 16.16 height, ignoring fractional part
 
-	add_atom(atom, mdia(t, trkdata));
+	add_atom(atom, mdia(trkdata));
 
 	view.setUint32(0, atom.size);
 	return atom;
 }
 
-function moov(t, tracks){
+function moov(tracks){
 	'use strict';
 	var d, buffer = new ArrayBuffer(116),
 		view = new DataView(buffer),
@@ -456,10 +444,10 @@ function moov(t, tracks){
 	// mvhd sub-box
 	view.setUint32(8, 108);
 	view.setUint32(12, 0x6d766864); // mvhd
-	view.setUint32(20, t); // creation time
-	view.setUint32(24, t); // modification time
-	view.setUint32(28, 90000); // timescale
-	view.setUint32(32, d); //duration
+	//view.setUint32(20, t); // creation time
+	//view.setUint32(24, t); // modification time
+	view.setUint32(28, 1000); // timescale
+	view.setUint32(32, Math.round(d*1000)); //duration
 	view.setUint32(36, 0x00010000); // rate = 1.0
 	view.setUint32(40, 0x01000000); // volume = 1.0 + reserved(16)
 	// 64 bits reserved
@@ -470,7 +458,7 @@ function moov(t, tracks){
 	// predefined (32)[6]
 	view.setUint32(112, tracks.length); // next track id
 
-	tracks.forEach(function(trkdata, i){ add_atom(atom, trak(t, i+1, trkdata)); });
+	tracks.forEach(function(trkdata, i){ add_atom(atom, trak(i+1, trkdata)); });
 
 	view.setUint32(0, atom.size);
 	return atom;
@@ -478,16 +466,18 @@ function moov(t, tracks){
 
 function MP4(tracks){
 	'use strict';
-	var offset = 0x28,
+	var offset,
 		atom = {size: 0, box: []};
 
+	add_atom(atom, ftyp());
+
+	offset = atom.size + 8;
 	tracks.forEach(function(track){
 		track.byte_offset = offset;
 		offset += track.data.byteLength;
 	});
 
-	add_atom(atom, ftyp());
 	add_atom(atom, mdat(tracks));
-	add_atom(atom, moov(0, tracks));
+	add_atom(atom, moov(tracks));
 	return new Blob(atom.box, {type: 'video/mp4'});
 }

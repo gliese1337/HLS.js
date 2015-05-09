@@ -23,14 +23,13 @@ function parseNALStream(bytes){
 	return nalUnits;
 }
 
-function mergeDeltas(deltas, frame_rate){
+function mergeDeltas(deltas){
 	'use strict';
 	var last_delta = -1,
 		dts_diffs = [],
 		current;
 
 	deltas.forEach(function(delta){
-		if(!delta){ delta = frame_rate; }
 		if(delta !== last_delta){
 			current = {sample_count: 1, sample_delta: delta};
 			dts_diffs.push(current);
@@ -51,6 +50,10 @@ function calcPDDiffs(samples){
 	samples.forEach(function(s, i){
 		var s_offset = s.pts - s.dts;
 		if(s_offset !== last_offset){
+			if(s_offset === 0){
+				last_offset = 1/0;
+				return;
+			}
 			last_offset = s_offset;
 			current = {
 				first_chunk: i + 1,
@@ -80,15 +83,18 @@ function mergeNALs(nals,length){
 
 function video_data(video_stream){
 	'use strict';
-	var i, length, next, current, offset = 0,
+	var i, len, next, current, offset = 0,
 		samples = [], nals = [], sizes = [],
 		pps, sps, spsInfo, width, height,
-		frame_rate, frame_sum = 0, frame_count = 0,
-		dts_diffs, dts_delta, dts_deltas = [];
+		dts_deltas = [];
 
 	video_stream.packets.forEach(function(packet){
-		var curSample = {offset: offset, pts: packet.pts, dts: packet.dts};
-		samples.push(curSample);
+		var size = 0,
+			curSample = {
+				offset: offset,
+				pts: packet.pts,
+				dts: packet.dts
+			};
 
 		parseNALStream(packet.data).forEach(function(nalUnit){
 			var cropping;
@@ -97,14 +103,15 @@ function video_data(video_stream){
 					if(sps){ break; }
 					sps = nalUnit;
 					spsInfo = parseSPS(nalUnit);
-					width = (spsInfo.pic_width_in_mbs_minus_1 + 1) * 16;
-					height = (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units_minus_1 + 1) * 16;
 
-					if(spsInfo.frame_cropping_flag){
-						cropping = spsInfo.frame_cropping;
-						width -= 2 * (cropping.left + cropping.right);
-						height -= 2 * (cropping.top + cropping.bottom);
-					}
+					//Height & Width data are junk; might be a problem with SPS parser,
+					//but everything seems to work fine without them anyway
+					/*cropping = spsInfo.frame_cropping;
+					width = (spsInfo.pic_width_in_mbs * 16)
+								- (cropping.left + cropping.right) * 2;
+					height = (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
+								- (cropping.top + cropping.bottom) * 2;
+					*/
 					break;
 				case 8:
 					if(pps){ break; }
@@ -113,52 +120,43 @@ function video_data(video_stream){
 				case 5:
 					curSample.isIDR = true;
 				default: /* falls through */
-					offset += nalUnit.length+4;
+					size += nalUnit.length+4;
 					nals.push(nalUnit);
 			}
 		});
+
+		offset += size;
+		sizes.push(size);
+		samples.push(curSample);
+		dts_deltas.push(packet.frame_ticks);
+
 	});
-
-	// calculate byte & time sizes
-	current = samples[0];
-	for(i = 0, length = samples.length; i < length; i++){
-		next = samples[i+1] || {offset: offset, dts: current.dts};
-		sizes.push(next.offset - current.offset);
-		dts_delta = next.dts - current.dts;
-		dts_deltas.push(dts_delta);
-		frame_sum += dts_delta;
-		if(dts_delta){ frame_count++; }
-		current = next;
-	}
-
-	frame_rate = Math.round(frame_sum / frame_count);
-	dts_diffs = mergeDeltas(dts_deltas, frame_rate);
 
 	return {
 		type: 'v',
 		pps: pps, sps: sps,
 		spsInfo: spsInfo,
-		width: width, height: height,
+		width: 0, height:0, //width, height: height,
 		sizes: sizes,
-		dts_diffs: dts_diffs,
+		dts_diffs: mergeDeltas(dts_deltas),
 		access_indices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
 								.filter(function(i){ return i !== -1; }),
 		pd_diffs: calcPDDiffs(samples),
-		frame_rate: frame_rate,
-		duration: dts_diffs.reduce(function(a,n){
-			return a + n.sample_count*n.sample_delta;
-		},0),
+		timescale: 90000,
+		duration: video_stream.length,
 		data: mergeNALs(nals, offset)
 	};
 }
 
+var freqList = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 function audio_data(audio_stream){
 	'use strict';
 	var duration = audio_stream.length,
 		audioPackets = audio_stream.packets.map(function(p){ return p.data; }),
 		audioBuffer = new Uint8Array(audio_stream.byteLength),
 		audioView = new DataView(audioBuffer.buffer),
-		audioSize = 0, maxAudioSize, profileMinusOne, samplingFreq, channelConfig,
+		audioSize = 0, maxAudioSize, profileMinusOne,
+		samplingFreq, samplingFreqIndex, channelConfig,
 		data_length, packet_length, header_length, sizes,
 		woffset, roffset, word, frames;
 
@@ -171,7 +169,8 @@ function audio_data(audio_stream){
 	header_length = (audioView.getUint8(1)|1) ? 7 : 9;
 	packet_length = (word>>5)&0x1fff;
 	profileMinusOne = (word >>> 30);
-	samplingFreq = (word >> 26) & 0xf;
+	samplingFreqIndex = (word >> 26) & 0xf;
+	samplingFreq = freqList[samplingFreqIndex];
 	channelConfig = (word >> 22) & 0x7;
 
 	data_length = packet_length - header_length;
@@ -198,16 +197,17 @@ function audio_data(audio_stream){
 		type: 'a',
 		profileMinusOne: profileMinusOne,
 		channelConfig: channelConfig,
-		samplingFreqIndex: samplingFreq,
+		samplingFreqIndex: samplingFreqIndex,
 		maxAudioSize: maxAudioSize,
 		maxBitrate: Math.round(maxAudioSize * frames / duration),
 		avgBitrate: Math.round(audioSize / duration),
 		sizes: sizes,
 		dts_diffs: [{
 			sample_count: frames,
-			sample_delta: duration / frames
+			sample_delta: Math.round(duration * samplingFreq / frames)
 		}],
-
+		timescale: samplingFreq,
+		duration: duration,
 		data: audioBuffer.subarray(0,audioSize)
 	};
 }

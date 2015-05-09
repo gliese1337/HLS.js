@@ -99,6 +99,9 @@ var HLSPlayer = (function(){
 
 		video.addEventListener('play', function(){
 			that.ended = false;
+			video.playbackRate = that.playbackRate;
+			video.volume = that.volume;
+			video.muted = that.muted;
 			nextFrame(that, this);
 		}, false);
 		video.addEventListener('timeupdate', function(){
@@ -109,6 +112,8 @@ var HLSPlayer = (function(){
 
 		video.addEventListener('ended', function(){
 			that.index++;
+			//that.paused = true;
+			//that.emit('pause');
 			getSegment(that, that.index).then(function(video){
 				console.log('Playing', that.index);
 				if(!that.paused){ video.play(); }
@@ -136,6 +141,9 @@ var HLSPlayer = (function(){
 	function HLSPlayer(canvas, manifestURL){
 		var that = this,
 			currentTime = 0,
+			playbackRate = 1,
+			volume = 1,
+			muted = false,
 			worker = new Worker('worker.js');
 
 		worker.addEventListener('message', addVideo.bind(this), false);
@@ -171,7 +179,7 @@ var HLSPlayer = (function(){
 						len = segs.length;
 
 					t = +t||0;
-					if(currentTime === t){ return; }
+					if(currentTime === t){ return currentTime; }
 					currentTime = t;
 					this.seeking = true;
 					this.ended = false;
@@ -190,21 +198,73 @@ var HLSPlayer = (function(){
 						this.paused = true;
 					}
 
-					if(!this.paused){
+					if(this.index === i){
 						getSegment(this, this.index)
-							.then(function(video){ video.pause(); });
-					}
+							.then(function(video){ video.currentTime = t; });
+					}else{
+						if(!this.paused){
+							getSegment(this, this.index)
+								.then(function(video){ video.pause(); });
+						}
 
-					this.index = i;
-					getSegment(this, i).then(function(video){
-						video.currentTime = t;
-						that.seeking = false;
-						if(!that.paused){ video.play(); }
-						else{ nextFrame(that, video); }
-					});
+						this.index = i;
+						getSegment(this, i).then(function(video){
+							that.seeking = false;
+							if(!that.paused){
+								// This trickery seems necessary to ensure audio loads properly
+								video.play();
+								video.currentTime = t;
+							}else{
+								video.currentTime = t;
+								nextFrame(that, video);
+							}
+						});
+					}
 
 					that.emit('seek',null);
 					return currentTime;
+				}
+			},
+			volume: {
+				get: function(){ return volume; },
+				set: function(v){
+					v = Math.min(Math.max(0, +v||0), 1);
+					if(volume === v){ return volume; }
+					volume = v;
+					if(!this.paused){
+						getSegment(this, this.index).then(function(video){
+							video.volume = v;
+						});
+					}
+					return volume;
+				}
+			},
+			muted: {
+				get: function(){ return muted; },
+				set: function(m){
+					m = !!m;
+					if(muted === m){ return muted; }
+					muted = m;
+					if(!this.paused){
+						getSegment(this, this.index).then(function(video){
+							video.muted = m;
+						});
+					}
+					return muted;
+				}
+			},
+			playbackRate: {
+				get: function(){ return playbackRate; },
+				set: function(r){
+					r = Math.max(0, +r||0);
+					if(playbackRate === r){ return playbackRate; }
+					playbackRate = r;
+					if(!this.paused){
+						getSegment(this, this.index).then(function(video){
+							video.playbackRate = r;
+						});
+					}
+					return playbackRate;
 				}
 			}
 		});

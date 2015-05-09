@@ -171,8 +171,8 @@ var parseSPS = (function(){
 			level_idc: level_idc,
 			profile_compatibility: profile_compatibility,
 			frame_mbs_only_flag: frame_mbs_only_flag,
-			pic_width_in_mbs_minus_1: pic_width_in_mbs_minus1,
-			pic_height_in_map_units_minus_1: pic_height_in_map_units_minus1,
+			pic_width_in_mbs: pic_width_in_mbs_minus1+1,
+			pic_height_in_map_units: pic_height_in_map_units_minus1+1,
 			frame_cropping_flag: frame_cropping_flag,
 			frame_cropping: {
 				left: left_offset,
