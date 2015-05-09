@@ -7,11 +7,11 @@
 
 	<h1>HTTP Live Streaming<br/>JavaScript Tech Demo</h1>
 
-	<div id="video-streaming"><canvas id="canvas"></canvas></div>
+	<div id="video-streaming"><canvas id="canvas" width="640" height="360"></canvas></div>
 	<br />
 	<input type="text" id="manifest" value="http://d3sporhxbkob1v.cloudfront.net/bill/vod/sample-video/400k.m3u8" /><br/>
-	<button id="play">Load</button>
-	<div id="downloads"></div>
+	<button id="play">Load</button><br/>
+	<input id="seeker" type="range" min="0" value="0" step="any" />
 
 	<script src="M3U8.js"></script>
 	<script src="AESDecrypt.js"></script>

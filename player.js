@@ -28,12 +28,21 @@ var HLSPlayer = (function(){
 	}
 
 	// drawing new frame
-	function nextFrame(ctx, currentVideo){
-		if(currentVideo.paused || currentVideo.ended){
-			return;
+	function nextFrame(player, video){
+		var scale, w, h,
+			cw = player.canvas.width,
+			ch = player.canvas.height,
+			vw = video.videoWidth,
+			vh = video.videoHeight;
+
+		scale = Math.min(cw/vw, ch/vh);
+		w = vw * scale;
+		h = vh * scale;
+
+		player.ctx.drawImage(video, (cw - w)/2, (ch - h)/2, w, h);
+		if(!(player.seeking || video.paused || video.ended)){
+			requestAnimationFrame(function(){ nextFrame(player, video); });
 		}
-		ctx.drawImage(currentVideo, 0, 0);
-		requestAnimationFrame(function(){ nextFrame(ctx, currentVideo); });
 	}
 
 	function getSegment(player, index){
@@ -83,24 +92,30 @@ var HLSPlayer = (function(){
 			base = this.baseTimes[index],
 			video = document.createElement('video');
 
-		console.log('Loaded', index);
-
 		video.addEventListener('loadedmetadata', function(){
-			if(canvas.width !== this.videoWidth || canvas.height !== this.videoHeight){
-				canvas.width = this.width = this.videoWidth;
-				canvas.height = this.height = this.videoHeight;
-			}
+			that.loaded[index] = true;
+			that.resolvers[index](video);
 		});
 
-		video.addEventListener('play', function(){ nextFrame(ctx, this); }, false);
+		video.addEventListener('play', function(){
+			that.ended = false;
+			nextFrame(that, this);
+		}, false);
 		video.addEventListener('timeupdate', function(){
+			if(that.seeking){ return; }
 			that.setTime(base + video.currentTime);
+			that.emit('timeupdate',null);
 		}, false);
 
 		video.addEventListener('ended', function(){
 			that.index++;
 			getSegment(that, that.index).then(function(video){
+				console.log('Playing', that.index);
 				if(!that.paused){ video.play(); }
+			},function(){
+				that.ended = true;
+				that.paused = true;
+				that.emit('ended', null);
 			});
 		});
 
@@ -116,19 +131,18 @@ var HLSPlayer = (function(){
 
 		video.src = data.url;
 		video.load();
-
-		this.loaded[index] = true;
-		this.resolvers[index](video);
 	}
 
 	function HLSPlayer(canvas, manifestURL){
 		var that = this,
 			currentTime = 0,
 			worker = new Worker('worker.js');
+
 		worker.addEventListener('message', addVideo.bind(this), false);
 
-		this.handlers = {};
 		this.worker = worker;
+		this.handlers = new Map();
+
 		this.baseURL = manifestURL;
 		this.index = 0;
 		this.canvas = canvas;
@@ -141,6 +155,8 @@ var HLSPlayer = (function(){
 		this.segments = [];
 		this.baseTimes = [];
 
+		this.seeking = false;
+		this.ended = false;
 		this.paused = true;
 		this.duration = 0;
 		this.readyState = 0;
@@ -150,12 +166,15 @@ var HLSPlayer = (function(){
 			currentTime: {
 				get: function(){ return currentTime; },
 				set: function(t){
-					var i, d,
+					var that = this, i, d,
 						segs = this.segments,
 						len = segs.length;
 
 					t = +t||0;
+					if(currentTime === t){ return; }
 					currentTime = t;
+					this.seeking = true;
+					this.ended = false;
 
 					end: {
 						for(i = 0; i < len; i++){
@@ -166,7 +185,9 @@ var HLSPlayer = (function(){
 
 						t = d;
 						i = len - 1;
-						currentTime = baseTime;
+						currentTime = d;
+						this.ended = true;
+						this.paused = true;
 					}
 
 					if(!this.paused){
@@ -177,9 +198,12 @@ var HLSPlayer = (function(){
 					this.index = i;
 					getSegment(this, i).then(function(video){
 						video.currentTime = t;
-						if(!this.paused){ video.play(); }
+						that.seeking = false;
+						if(!that.paused){ video.play(); }
+						else{ nextFrame(that, video); }
 					});
 
+					that.emit('seek',null);
 					return currentTime;
 				}
 			}
@@ -189,7 +213,7 @@ var HLSPlayer = (function(){
 			var times = [], b = 0;
 
 			segments.forEach(function(s){
-				times.push(s.duration);
+				times.push(b);
 				b += s.duration;
 			});
 
@@ -199,28 +223,37 @@ var HLSPlayer = (function(){
 
 			return getSegment(that, 0);
 		}).then(function(video){
+			nextFrame(that, video);
 			that.readyState = 4;
-			that.emit('ready');
+			that.emit('ready', null);
 		});
 	}
 
 	HLSPlayer.prototype.emit = function(event, data){
-		(this.handlers[event]||[]).forEach(function(cb){ cb(data); });
+		this.canvas.dispatchEvent(new CustomEvent(
+			event, {bubbles:true,detail:data}
+		));
 	};
 
 	HLSPlayer.prototype.addEventListener = function(event, cb, capture){
-		if(!this.handlers.hasOwnProperty(event)){
-			this.handlers[event] = [cb];
-		}else{
-			this.handlers[event].push(cb);
-		}
+		var bound = cb.bind(this);
+		this.handlers.set(cb, {c: !!capture, f: bound});
+		this.canvas.addEventListener(event, bound, !!capture);
+	};
+
+	HLSPlayer.prototype.removeEventListener = function(event, cb, capture){
+		var o = this.handlers.get(cb);
+		this.handlers.delete(cb);
+		this.canvas.removeEventListener(event, o.f, o.c);
 	};
 
 	HLSPlayer.prototype.play = function(){
 		var that = this;
 		if(!this.paused){ return; }
+		this.paused = false;
+		this.emit('play',null);
 		getSegment(this, this.index).then(function(video){
-			that.paused = false;
+			if(that.paused){ return; }
 			video.play();
 		});
 	}
@@ -229,8 +262,10 @@ var HLSPlayer = (function(){
 	HLSPlayer.prototype.pause = function(){
 		var that = this;
 		if(this.paused){ return; }
+		this.paused = true;
+		this.emit('pause', null);
 		getSegment(this, this.index).then(function(video){
-			that.paused = true;
+			if(!that.paused){ return; }
 			video.pause();
 		});
 	}
