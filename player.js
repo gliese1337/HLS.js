@@ -59,6 +59,7 @@ var HLSPlayer = (function(){
 		url = resolveURL(player.baseURL, seg.uri);
 
 		(new Promise(function(resolve){
+			// Request segment data
 			var xhr = new XMLHttpRequest();
 			xhr.responseType = "arraybuffer";
 			xhr.addEventListener('load', function(){
@@ -67,6 +68,7 @@ var HLSPlayer = (function(){
 			xhr.open("GET", url, true);
 			xhr.send();
 		})).then(function(arrbuffer){
+			// Decrypt data if necessary
 			var data = new Uint8Array(arrbuffer);
 			if(seg.encryption.method !== "AES-128"){ return data; }
 			return seg.encryption.key.then(function(keybuffer){
@@ -74,10 +76,14 @@ var HLSPlayer = (function(){
 				return player.decryptor.decrypt(data);
 			});
 		}).then(function(data){
+			// Demux TS data into packet streams
+			return player.demuxer.process(data);
+		}).then(function(packet_data){
+			// Pass packet streams into MP4 Builder
 			player.worker.postMessage({
-				buffer: data,
+				streams: packet_data.streams,
 				index: index
-			}, [data.buffer]);
+			}, packet_data.buffers);
 		});
 
 		return p;
@@ -149,6 +155,7 @@ var HLSPlayer = (function(){
 		worker.addEventListener('message', addVideo.bind(this), false);
 
 		this.worker = worker;
+		this.demuxer = new TSDemuxer();
 		this.handlers = new Map();
 
 		this.baseURL = manifestURL;

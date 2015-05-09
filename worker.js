@@ -1,4 +1,3 @@
-importScripts('./TSDemuxer.js');
 importScripts('./SPSParser.js');
 importScripts('./MP4Muxer.js');
 
@@ -213,10 +212,10 @@ function audio_data(audio_stream){
 }
 
 addEventListener('message', function(event){
-	var streams, tracks = [],
-		msg = event.data;
+	var msg = event.data,
+		streams = msg.streams,
+		tracks = [];
 
-	streams = (new TSDemuxer()).process(msg.buffer);
 	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0])); }
 	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
 
