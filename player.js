@@ -71,10 +71,8 @@ var HLSPlayer = (function(){
 			// Decrypt data if necessary
 			var data = new Uint8Array(arrbuffer);
 			if(seg.encryption.method !== "AES-128"){ return data; }
-			return seg.encryption.key.then(function(keybuffer){
-				player.decryptor.config({key: keybuffer, iv: seg.encryption.iv});
-				return player.decryptor.decrypt(data);
-			});
+			player.decryptor.config({key: seg.encryption.key, iv: seg.encryption.iv});
+			return player.decryptor.decrypt(data);
 		}).then(function(data){
 			// Demux TS data into packet streams
 			return player.demuxer.process(data);

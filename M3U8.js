@@ -107,7 +107,7 @@ var parseHLS = (function(){
 			}
 		}
 
-		return segments;
+		return Promise.all(segments);
 	}
 
 	function assert_media(settings){
@@ -428,16 +428,7 @@ var parseHLS = (function(){
 			duration: settings.duration,
 			offset: 0,
 			byteLen: NaN,
-			encryption: (encSettings.method === "NONE")?{
-				method: "NONE", key: null, iv: null,
-				format: "identity", formatVersions: "1"
-			}:{
-				method: encSettings.method,
-				key: getKeyPromise(encSettings.key),
-				iv: h2b(encSettings.iv || createIV(settings.sequenceNo)),
-				format: format,
-				formatVersions: encSettings.formatVersions
-			}
+			encryption: null
 		}
 
 		settings.sequenceNo++;
@@ -455,7 +446,24 @@ var parseHLS = (function(){
 			settings.lastByteRange = null;
 		}
 
-		return segment;
+		if(encSettings.method === "NONE"){
+			segment.encryption = {
+				method: "NONE", key: null, iv: null,
+				format: "identity", formatVersions: "1"
+			};
+			return Promise.resolve(segment);
+		}else{
+			return getKeyPromise(encSettings.key).then(function(keybuffer){
+				segment.encryption = {
+					method: encSettings.method,
+					key: keybuffer,
+					iv: h2b(encSettings.iv || createIV(settings.sequenceNo)),
+					format: format,
+					formatVersions: encSettings.formatVersions
+				};
+				return segment;
+			});
+		}
 	}
 
 	return parse;
