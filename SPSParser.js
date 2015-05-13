@@ -89,7 +89,7 @@ var parseSPS = (function(){
 	}
 
 	return function parseSPS(nal){
-		var i, stream = new Bitstream(new DataView(nal.buffer, nal.byteOffset+3)),
+		var i, stream = new Bitstream(new DataView(nal.buffer, nal.byteOffset+4)),
 			profile_idc, level_idc,
 			profile_compatibility,
 			pic_width_in_mbs_minus1,
@@ -104,9 +104,9 @@ var parseSPS = (function(){
 			top_offset = 0,
 			bottom_offset = 0;
 			
-		profile_idc = nal[0];
-		profile_compatibility = nal[1];
-		level_idc = nal[2];
+		profile_idc = nal[1];
+		profile_compatibility = nal[2];
+		level_idc = nal[3];
 		stream.SkipExpGolomb(); // seq_parameter_set_id
 
 		if(	profile_idc === 100 || profile_idc === 110 ||

@@ -103,14 +103,11 @@ function video_data(video_stream){
 					sps = nalUnit;
 					spsInfo = parseSPS(nalUnit);
 
-					//Height & Width data are junk; might be a problem with SPS parser,
-					//but everything seems to work fine without them anyway
-					/*cropping = spsInfo.frame_cropping;
+					cropping = spsInfo.frame_cropping;
 					width = (spsInfo.pic_width_in_mbs * 16)
 								- (cropping.left + cropping.right) * 2;
 					height = (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
 								- (cropping.top + cropping.bottom) * 2;
-					*/
 					break;
 				case 8:
 					if(pps){ break; }
@@ -135,7 +132,8 @@ function video_data(video_stream){
 		type: 'v',
 		pps: pps, sps: sps,
 		spsInfo: spsInfo,
-		width: 0, height:0, //width, height: height,
+		width: width,
+		height: height,
 		sizes: sizes,
 		dts_diffs: mergeDeltas(dts_deltas),
 		access_indices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
