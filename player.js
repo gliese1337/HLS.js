@@ -102,41 +102,34 @@ var HLSPlayer = (function(){
 		});
 
 		video.addEventListener('play', function(){
+			that.index = index;
 			that.ended = false;
 			video.playbackRate = that.playbackRate;
 			video.volume = that.volume;
 			video.muted = that.muted;
 			nextFrame(that, this);
+
+			if(!that.loaded[index+1]){
+				getSegment(that, index+1).then(function(next){
+					video.addEventListener('ended', function(){
+						if(!that.paused){ next.play(); }
+					}, false);
+				},function(){
+					video.addEventListener('ended', function(){
+						that.currentTime = 0;
+						that.ended = true;
+						that.paused = true;
+						that.emit('ended', null);
+					}, false);
+				});
+			}
 		}, false);
+
 		video.addEventListener('timeupdate', function(){
 			if(that.seeking){ return; }
 			that.setTime(base + video.currentTime);
 			that.emit('timeupdate',null);
 		}, false);
-
-		video.addEventListener('ended', function(){
-			that.index++;
-			//that.paused = true;
-			//that.emit('pause');
-			getSegment(that, that.index).then(function(video){
-				console.log('Playing', that.index);
-				if(!that.paused){ video.play(); }
-			},function(){
-				that.ended = true;
-				that.paused = true;
-				that.emit('ended', null);
-			});
-		});
-
-		if(!that.loaded[index+1]){
-			video.addEventListener('timeupdate', function checkRemaining(){
-				if(!that.loaded[index+1]){
-					if(this.duration - this.currentTime > 5){ return; }
-					getSegment(that, index+1);
-				}
-				this.removeEventListener('timeupdate', checkRemaining, false);
-			}, false);
-		}
 
 		video.src = data.url;
 		video.load();
