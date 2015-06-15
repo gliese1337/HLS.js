@@ -1,5 +1,5 @@
-importScripts('./SPSParser.js');
-importScripts('./MP4Muxer.js');
+//importScripts('./SPSParser.js');
+//importScripts('./MP4Muxer.js');
 
 function parseNALStream(bytes){
 	'use strict';

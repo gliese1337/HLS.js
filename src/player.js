@@ -141,7 +141,7 @@ var HLSPlayer = (function(){
 			playbackRate = 1,
 			volume = 1,
 			muted = false,
-			worker = new Worker('worker.js');
+			worker = new Worker(remuxWorkerURL);
 
 		worker.addEventListener('message', addVideo.bind(this), false);
 
