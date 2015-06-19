@@ -1,6 +1,3 @@
-//importScripts('./SPSParser.js');
-//importScripts('./MP4Muxer.js');
-
 function parseNALStream(bytes){
 	'use strict';
 	var view = new DataView(bytes.buffer,bytes.byteOffset),

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>HLS tech demo</title>
+</head>
+<body class="loading" style="text-align: center">
+
+	<h1>HTTP Live Streaming<br/>JavaScript Tech Demo</h1>
+
+	<div id="video-streaming"><canvas id="canvas" width="640" height="360"></canvas></div>
+	<br />
+	<select id="manifest">
+		<option value="http://d3sporhxbkob1v.cloudfront.net/bill/vod/sample-video/400k.m3u8">Sample Video</option>
+		<option value="http://c.brightcove.com/services/mobile/streaming/index/rendition.m3u8?assetId=1614505040001">M. Batignole</option>
+		<option value="http://s3.amazonaws.com/hummedia.manifests/0177882.m3u8">ODH Video</option>
+	</select>
+	<button id="play">Load</button><br/>
+	Seeker: <input id="seeker" type="range" min="0" value="0" step="any" style="width:50%;" /><br/>
+	Rate: <input id="rate" type="range" min="0" max="2" value="1" step="any" style="width:50%;" /><br/>
+	Volume: <input id="volume" type="range" min="0" max ="1" value="1" step="any" style="width:50%;" />
+
+	<script>
+	var remuxWorkerURL;
+	var xhr = new XMLHttpRequest();
+	xhr.addEventListener('load', function(){
+		remuxWorkerURL = URL.createObjectURL(new Blob([
+			'importScripts("http://localhost/HLS.js/src/SPSParser.js");' +
+			'importScripts("http://localhost/HLS.js/src/MP4Muxer.js");' +
+			xhr.responseText
+		], {type:'text/javascript'}));
+		console.log("Ready!");
+	},false);
+	xhr.open("GET", "http://localhost/HLS.js/src/worker.js");
+	xhr.send();
+	</script>
+	<script src="src/M3U8.js"></script>
+	<script src="src/AESDecrypt.js"></script>
+	<script src="src/TSDemuxer.js"></script>
+	<script src="src/player.js"></script>
+	<script src="browser.js"></script>
+</body>
+</html>
