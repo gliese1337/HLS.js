@@ -5,32 +5,6 @@
 var HLSPlayer = (function(){
 	'use strict';
 
-	var doc_head = document.getElementsByTagName('head')[0],
-		our_base = document.createElement('base'),
-		resolver = document.createElement('a');
-
-	// relative URL resolver
-	function resolveURL(base_url, url){
-		var resolved_url;
-		doc_head.appendChild(our_base);
-		our_base.href = base_url;
-		resolver.href = url;
-		resolved_url  = resolver.href; // browser magic at work here
-		doc_head.removeChild(our_base);
-		return resolved_url;
-	}
-
-	function getManifest(url){
-		return new Promise(function(resolve, reject){
-			var xhr = new XMLHttpRequest();
-			xhr.addEventListener('load', function(){
-				resolve(parseHLS(this.responseText));
-			});
-			xhr.open('GET', url, true);
-			xhr.send();
-		});
-	}
-
 	// drawing new frame
 	function nextFrame(player, video){
 		var scale, w, h,
@@ -50,7 +24,7 @@ var HLSPlayer = (function(){
 	}
 
 	function getSegment(player, index){
-		var seg, url, p;
+		var seg, p;
 		if(index >= player.segments.length){ return Promise.reject(null); }
 		if(player.videos[index]){ return player.videos[index]; }
 		
@@ -60,7 +34,6 @@ var HLSPlayer = (function(){
 
 		player.videos[index] = p;
 		seg = player.segments[index];
-		url = resolveURL(player.baseURL, seg.uri);
 
 		(new Promise(function(resolve){
 			// Request segment data
@@ -69,7 +42,7 @@ var HLSPlayer = (function(){
 			xhr.addEventListener('load', function(){
 				resolve(this.response);
 			},false);
-			xhr.open("GET", url, true);
+			xhr.open("GET", seg.uri, true);
 			xhr.send();
 		})).then(function(arrbuffer){
 			// Decrypt data if necessary
@@ -158,7 +131,6 @@ var HLSPlayer = (function(){
 		this.demuxer = new TSDemuxer();
 		this.handlers = new Map();
 
-		this.baseURL = manifestURL;
 		this.index = 0;
 		this.canvas = canvas;
 		this.ctx = canvas.getContext('2d');
@@ -276,7 +248,7 @@ var HLSPlayer = (function(){
 			}
 		});
 
-		getManifest(manifestURL).then(function(segments){
+		(new M3U8Manifest(manifestURL)).listen(function(segments){
 			var times = [], b = 0;
 
 			segments.forEach(function(s){
@@ -288,11 +260,11 @@ var HLSPlayer = (function(){
 			that.segments = segments;
 			that.duration = b;
 
-			return getSegment(that, 0);
-		}).then(function(video){
-			nextFrame(that, video);
-			that.readyState = 4;
-			that.emit('ready', null);
+			getSegment(that, 0).then(function(video){
+				nextFrame(that, video);
+				that.readyState = 4;
+				that.emit('ready', null);
+			});
 		});
 	}
 

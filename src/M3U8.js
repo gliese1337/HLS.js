@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var parseHLS = (function(){
+var M3U8Manifest = (function(){
 	"use strict";
 
 	var linePat = /^(#)?(EXT)?(.+?)$/mg,
@@ -52,7 +52,7 @@ var parseHLS = (function(){
 		return attrs;
 	}
 
-	function parse(input){
+	function parse(baseUrl, input){
 		var match,
 			segments = [],
 			settings = {
@@ -68,6 +68,7 @@ var parseHLS = (function(){
 						}
 					}
 				},
+				isFinished: false,
 				hasMutability: false,
 				mutability: "",
 				mediaInit: null,
@@ -104,14 +105,16 @@ var parseHLS = (function(){
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
-				if(match[3] === "-X-ENDLIST"){ break; }
 				parseTag(match[3], settings);
 			}else{ //Gotta be a URI line
-				segments.push(createSegment(match[0], settings));
+				segments.push(createSegment(baseUrl, match[0], settings));
 			}
 		}
 
-		return Promise.all(segments);
+		return {
+			settings: settings,
+			segments: Promise.all(segments)
+		};
 	}
 
 	function assert_media(settings){
@@ -186,6 +189,10 @@ var parseHLS = (function(){
 			parsePlaylistTypeTag(settings, match[1]);
 			return;
 		}
+		match = /-X-ENDLIST/.exec(line);
+		if(match){
+			parseEndlistTag(settings);
+		}
 
 		//Media or Master Playlist Tags
 		match = /-X-INDEPENDENT-SEGMENTS/.exec(line);
@@ -231,22 +238,38 @@ var parseHLS = (function(){
 		assert_media(settings);
 		if(settings.hasDiscontinuitySequence){ throw new Error("Duplicate X-DISCONTINUITY-SEQUENCE tags."); }
 		if(settings.hasSegments){ throw new Error("X-DISCONTINUITY-SEQUENCE tag must preceded media segments."); }
+		if(settings.mutability !== ""){ throw new Error("EVENT or VOD playlist may not contain X-DISCONTINUITY-SEQUENCE tag."); }
 		settings.hasDiscontinuitySequence = true;
 		settings.discontinuitySequence = parseInt(num,10);
 	}
 
 	function parsePlaylistTypeTag(settings,type){
 		assert_media(settings);
-		if(settings.hasDiscontinuitySequence){ throw new Error("Duplicate X-PLAYLIST-TYPE tags."); }
-		if(settings.hasSegments){ throw new Error("X-PLAYLIST-TYPE tag must preceded media segments."); }
+		if(settings.hasMutability){
+			throw new Error("Duplicate X-PLAYLIST-TYPE tags.");
+		}
+		if(settings.hasSegments){
+			throw new Error("X-PLAYLIST-TYPE tag must preceded media segments.");
+		}
 		settings.hasMutability = true;
 		switch(type){
 		case "VOD": case "EVENT":
+			if(settings.hasDiscontinuitySequence){
+				throw new Error("EVENT or VOD playlist may not contain X-DISCONTINUITY-SEQUENCE tag.");
+			}
 			settings.mutability = type;
 			break;
 		default:
 			throw new Error("Invalid Playlist Type");
 		}
+	}
+
+	function parseEndlistTag(settings){
+		assert_media(settings);
+		if(settings.isFinished){
+			throw new Error("Duplicate X-ENDLIST tags.");
+		}
+		settings.isFinished = true;
 	}
 
 	function parseIFrameTag(settings){
@@ -420,13 +443,13 @@ var parseHLS = (function(){
 		return b.buffer;
 	}
 
-	function createSegment(line, settings){
+	function createSegment(baseUrl, line, settings){
 		var format = settings.encryption.format,
 			encSettings = settings.encryption.formatSettings[format],
 			segment;
 
 		segment = {
-			uri: line,
+			uri: resolveURL(baseUrl, line),
 			seqNo: settings.sequenceNo,
 			discSeqNo: settings.discontinuitySequence,
 			duration: settings.duration,
@@ -470,5 +493,104 @@ var parseHLS = (function(){
 		}
 	}
 
-	return parse;
+	var head = document.getElementsByTagName('head')[0],
+		base = document.createElement('base'),
+		resolver = document.createElement('a');
+
+	// relative URL resolver
+	function resolveURL(base_url, url){
+		var resolved_url;
+		head.appendChild(base);
+		base.href = base_url;
+		resolver.href = url;
+		// browser magic at work here
+		resolved_url  = resolver.href;
+		head.removeChild(base);
+		return resolved_url;
+	}
+
+	function getManifest(url){
+		return new Promise(function(resolve, reject){
+			var xhr = new XMLHttpRequest();
+			xhr.addEventListener('load', function(){
+				resolve(this.responseText);
+			});
+			xhr.open('GET', url, true);
+			xhr.send();
+		});
+	}
+
+	function M3U8Manifest(url){
+		this.url = url;
+		this.segments = [];
+		this.listeners = [];
+
+		this.refresh();
+	}
+
+	M3U8Manifest.prototype.refresh = function(){
+		var that = this, settings;
+		getManifest(this.url).then(function(text){
+			var obj = parse(that.url, text);
+			settings = obj.settings;
+			return obj.segments;
+		}).then(function(segments){
+			var waitFraction = 1000;
+			//TODO: compare with previous segment list
+			// to generate diffs & determine the proper wait time
+			that.segments = segments;
+
+/*
+   The client MUST periodically reload the Media Playlist file unless it
+   contains the EXT-X-ENDLIST tag.
+
+   However the client MUST NOT attempt to reload the Playlist file more
+   frequently than specified by this section.
+
+   When a client loads a Playlist file for the first time or reloads a
+   Playlist file and finds that it has changed since the last time it
+   was loaded, the client MUST wait for at least the target duration
+   before attempting to reload the Playlist file again, measured from
+   the last time the client began loading the Playlist file.
+
+   If the client reloads a Playlist file and finds that it has not
+   changed then it MUST wait for a period of one-half the target
+   duration before retrying.
+
+   ...
+   
+   HOWEVER, "If the tag is present and has a value of VOD, the Playlist file MUST NOT change."
+   So there's really no point in reloading it in that case.
+*/
+
+			//Turn this on once the player is updated to handle
+			//changes in the minfest
+			/*if(settings.mutability !== "VOD" &&
+				!(settings.mutability === "EVENT" && settings.isFinished)){
+				setTimeout(
+					function(){ that.refresh(); },
+					settings.targetDuration*waitFraction
+				);
+			}*/
+
+			that.emit(segments);
+		});
+	};
+
+	M3U8Manifest.prototype.emit = function(segments){
+		this.listeners.forEach(function(cb){
+			setTimeout(cb.bind(null,segments),0);
+		});
+	};
+
+	M3U8Manifest.prototype.listen = function(cb){
+		this.listeners.push(cb);
+	};
+
+	M3U8Manifest.prototype.unlisten = function(cb){
+		var idx = this.listeners.indexOf(cb);
+		if(~idx){ this.listeners.splice(idx,1); }
+	};
+
+	return M3U8Manifest;
 }());
