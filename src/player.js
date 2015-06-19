@@ -248,22 +248,24 @@ var HLSPlayer = (function(){
 			}
 		});
 
-		(new M3U8Manifest(manifestURL)).listen(function(segments){
-			var times = [], b = 0;
+		fetchHLSManifests(manifestURL).then(function(mlist){
+			mlist[0].listen(function(segments){
+				var times = [], b = 0;
 
-			segments.forEach(function(s){
-				times.push(b);
-				b += s.duration;
-			});
+				segments.forEach(function(s){
+					times.push(b);
+					b += s.duration;
+				});
 
-			that.baseTimes = times;
-			that.segments = segments;
-			that.duration = b;
+				that.baseTimes = times;
+				that.segments = segments;
+				that.duration = b;
 
-			getSegment(that, 0).then(function(video){
-				nextFrame(that, video);
-				that.readyState = 4;
-				that.emit('ready', null);
+				getSegment(that, 0).then(function(video){
+					nextFrame(that, video);
+					that.readyState = 4;
+					that.emit('ready', null);
+				});
 			});
 		});
 	}

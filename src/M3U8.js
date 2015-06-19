@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var M3U8Manifest = (function(){
+var fetchHLSManifests = (function(){
 	"use strict";
 
 	var linePat = /^(#)?(EXT)?(.+?)$/mg,
@@ -592,5 +592,9 @@ var M3U8Manifest = (function(){
 		if(~idx){ this.listeners.splice(idx,1); }
 	};
 
-	return M3U8Manifest;
+	function fetchHLSManifests(url){
+		return Promise.resolve([new M3U8Manifest(url)]);
+	}
+
+	return fetchHLSManifests;
 }());
