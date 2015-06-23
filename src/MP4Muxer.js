@@ -44,12 +44,13 @@ function hdlr(trkdata){
 	if(trkdata.type==='v'){
 		view.setUint32(16, 0x76696465); // vide
 		view.setUint32(32, 0x56696465); // 'Vide'
+		view.setUint32(36, 0x6f48616e); //'oHan'
 	}else{
 		view.setUint32(16, 0x736f756e); // soun
-		view.setUint32(32, 0x41756469); // 'Audi'
+		view.setUint32(32, 0x536f756e); // 'Soun'
+		view.setUint32(36, 0x6448616e); //'dHan'
 	}
 
-	view.setUint32(36, 0x6f48616e); //'oHan'
 	view.setUint32(40, 0x646c6572); // 'dler'
 
 	return {size: 45, box: [buffer]};
@@ -70,14 +71,14 @@ function vmhd(){
 
 function smhd(){
 	'use strict';
-	var buffer = new ArrayBuffer(8),
+	var buffer = new ArrayBuffer(16),
 		view = new DataView(buffer);
 
-	view.setUint32(0, 8);
+	view.setUint32(0, 16);
 	view.setUint32(4, 0x736d6864); // smhd
 	// version & flags, balance & reserved
 
-	return {size: 8, box: [buffer]};
+	return {size: 16, box: [buffer]};
 }
 
 function dinf(){
@@ -276,7 +277,7 @@ function esds(trkdata){
 		objectType = trkdata.profileMinusOne + 1,
 		channelConf = trkdata.channelConfig;
 
-	view.setUint32(0, 39); // esds
+	view.setUint32(0, 39); // size
 	view.setUint32(4, 0x65736473); // esds
 	//ES_Descriptor
 	view.setUint8(12, 3); // ES_DescrTag
