@@ -35,29 +35,37 @@ function mdat(tracks){
 
 function hdlr(trkdata){
 	'use strict';
-	var buffer = new ArrayBuffer(20),
+	var buffer = new ArrayBuffer(45),
 		view = new DataView(buffer);
 
-	view.setUint32(0, 20);
+	view.setUint32(0, 45);
 	view.setUint32(4, 0x68646c72); // hdlr
-	trkdata.type==='v'?
-		view.setUint32(16, 0x76696465): // vide
-		view.setUint32(16, 0x736f756e); // soun
 
-	return {size: 20, box: [buffer]};
+	if(trkdata.type==='v'){
+		view.setUint32(16, 0x76696465); // vide
+		view.setUint32(32, 0x56696465); // 'Vide'
+	}else{
+		view.setUint32(16, 0x736f756e); // soun
+		view.setUint32(32, 0x41756469); // 'Audi'
+	}
+
+	view.setUint32(36, 0x6f48616e); //'oHan'
+	view.setUint32(40, 0x646c6572); // 'dler'
+
+	return {size: 45, box: [buffer]};
 }
 
 function vmhd(){
 	'use strict';
-	var buffer = new ArrayBuffer(12),
+	var buffer = new ArrayBuffer(20),
 		view = new DataView(buffer);
 
-	view.setUint32(0, 12);
+	view.setUint32(0, 20);
 	view.setUint32(4, 0x766d6864); // vmhd
 	view.setUint32(8, 1); // version & flags
 	// graphicsmode(16) & opcolor(16)[3]
 
-	return {size: 12, box: [buffer]};
+	return {size: 20, box: [buffer]};
 }
 
 function smhd(){
@@ -74,23 +82,23 @@ function smhd(){
 
 function dinf(){
 	'use strict';
-	var buffer = new ArrayBuffer(36),
+	var buffer = new ArrayBuffer(37),
 		view = new DataView(buffer);
 
-	view.setUint32(0, 36);
+	view.setUint32(0, 37);
 	view.setUint32(4, 0x64696e66); // dinf
 	// Data Reference sub-box
-	view.setUint32(8, 28);
+	view.setUint32(8, 29);
 	view.setUint32(12, 0x64726566); // dref
 	// flags
 	view.setUint32(20, 1); // entry count
 	//DataEntryUrl sub-box
-	view.setUint32(24, 12);
+	view.setUint32(24, 13);
 	view.setUint32(28, 0x75726c20); // 'url '
 	view.setUint32(32, 1); // self-contained flag
 	//no url string in self-contained version
 
-	return {size: 36, box: [buffer]};
+	return {size: 37, box: [buffer]};
 }
 
 function stts(dts_diffs){

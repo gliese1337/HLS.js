@@ -30,29 +30,34 @@ var TSDemuxer = (function(){
 			});
 		}
 
+		Stream.prototype.finalize = function(){
+			var packet_data, offset = 0,
+				payload = this.payload;
+			if(payload === null){ return; }
+			if(payload.buffer.length === 1){
+				packet_data = payload.buffer[0];
+			}else{
+				packet_data = new Uint8Array(payload.buflen);
+				payload.buffer.forEach(function(b){
+					packet_data.set(b, offset);
+					offset += b.byteLength;
+				});
+			}
+			this.packets.push({
+				pts: payload.pts,
+				dts: payload.dts,
+				frame_ticks: payload.frame_ticks,
+				data: packet_data
+			});
+		};
+
 		Stream.prototype.write = function(mem, ptr, len, pstart){
 			var packet_data,
 				payload = this.payload,
 				offset = 0;
 			if(pstart || payload === null){
 				// finalize previously accumulated packet
-				if(payload !== null){
-					if(payload.buffer.length === 1){
-						packet_data = payload.buffer[0];
-					}else{
-						packet_data = new Uint8Array(payload.buflen);
-						payload.buffer.forEach(function(b){
-							packet_data.set(b, offset);
-							offset += b.byteLength;
-						});
-					}
-					this.packets.push({
-						pts: payload.pts,
-						dts: payload.dts,
-						frame_ticks: payload.frame_ticks,
-						data: packet_data
-					});
-				}
+				this.finalize();
 				// start new packet
 				this.payload = {
 					buffer: [new Uint8Array(mem.buffer, ptr, len)],
@@ -385,6 +390,7 @@ var TSDemuxer = (function(){
 				blist = [];
 			Object.keys(pids).forEach(function(id){
 				var s = pids[id];
+				s.finalize();
 				if(s.byteLength === 0){ return; }
 				streams[s.stream_id] = {
 					type: s.type,
