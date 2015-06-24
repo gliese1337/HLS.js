@@ -271,40 +271,40 @@ function avc1(trkdata){
 
 function esds(trkdata){
 	'use strict';
-	var buffer = new ArrayBuffer(39),
+	var buffer = new ArrayBuffer(51),
 		view = new DataView(buffer),
 		freqIndex = trkdata.samplingFreqIndex,
 		objectType = trkdata.profileMinusOne + 1,
 		channelConf = trkdata.channelConfig;
 
-	view.setUint32(0, 39); // size
+	view.setUint32(0, 51); // size
 	view.setUint32(4, 0x65736473); // esds
+	//4 bytes version & flags = 0
+
 	//ES_Descriptor
-	view.setUint8(12, 3); // ES_DescrTag
-	view.setUint8(13, 34); // length
-	view.setUint16(15, 2); // ES_ID
-	// priority + flags byte = 0
+	view.setUint32(12, 0x03808080); // ES_DescrTag, type = 3
+	// length(8) = 34, ES_ID(16) = 2, stream priority + flags byte = 0
+	view.setUint32(16, 0x22000200);
 
 	//DecoderConfigDescriptor
-	view.setUint8(17, 4); // DecoderConfigDescrTag
-	view.setUint8(18, 20); // length
-	view.setUint8(19, 0x40); // objectTypeIndication = MPEG4 Audio ISO/IEC 14496-3
-	view.setUint8(20, 0x15); // streamType = 5 (Audio), upStream = 0, reserved = 0 
-	// 3 byte bufferSize = 0
-	view.setUint32(24, trkdata.maxBitrate);
-	view.setUint32(28, trkdata.avgBitrate);
+	view.setUint32(20, 0x04808080); // ES_DescrTag, type = 4
+	// length(8) = 20, objectTypeIndication(8) = MPEG4 Audio ISO/IEC 14496-3
+	// streamType = 5 (Audio), upStream = 0, reserved = 0, bufferSize = 0
+	view.setUint32(24, 0x14401500);
+	// 2 more bytes of bufferSize = 0
+	view.setUint32(30, trkdata.maxBitrate);
+	view.setUint32(34, trkdata.avgBitrate);
 
 	// DecoderSpecificInfo
-	view.setUint8(32, 5); // DecSpecificInfoTag
-	view.setUint8(33, 2); // length
-	view.setUint16(34, (objectType<<11)|(freqIndex<<7)|(channelConf<<3));
+	view.setUint32(38, 0x05808080); // DecSpecificInfoTag
+	view.setUint8(42, 2); // length
+	view.setUint16(43, (objectType<<11)|(freqIndex<<7)|(channelConf<<3));
 
 	// SLConfigDescriptor
-	view.setUint8(36, 6); //SLConfigDescrTag
-	view.setUint8(37, 1); // length
-	view.setUint8(38, 2); // MP4 = 2
+	view.setUint32(45, 0x06808080); //SLConfigDescrTag
+	view.setUint16(49, 0x0102); // length = 1, MP4 = 2
 
-	return {size: 39, box: [buffer]};
+	return {size: 51, box: [buffer]};
 }
 
 function mp4a(trkdata){

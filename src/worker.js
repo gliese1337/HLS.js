@@ -201,7 +201,7 @@ addEventListener('message', function(event){
 		tracks = [];
 
 	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0].packets)); }
-	//if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0].packets)); }
+	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0].packets)); }
 
 	postMessage({
 		index: msg.index,
