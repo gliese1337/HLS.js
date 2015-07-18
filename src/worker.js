@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 function parseNALStream(bytes){
 	'use strict';
 	var view = new DataView(bytes.buffer,bytes.byteOffset),
@@ -200,7 +204,7 @@ addEventListener('message', function(event){
 		streams = msg.streams,
 		tracks = [];
 
-	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0].packets)); }
+	//if(streams[0xE0]){ tracks.push(video_data(streams[0xE0].packets)); }
 	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0].packets)); }
 
 	postMessage({

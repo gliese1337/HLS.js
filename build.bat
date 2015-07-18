@@ -1,3 +1,6 @@
+:: Any copyright is dedicated to the Public Domain.
+:: http://creativecommons.org/publicdomain/zero/1.0/
+
 if not exist bin mkdir bin
 echo var HLSPlayer = (function(){ > bin\HLSPlayer.js
 echo var remuxWorkerURL = URL.createObjectURL(new Blob(['('+function(){ >> bin\HLSPlayer.js
