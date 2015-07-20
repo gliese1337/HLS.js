@@ -52,6 +52,79 @@ var fetchHLSManifests = (function(){
 		return attrs;
 	}
 
+	function parseMaster(input){
+		// TODO: Add default settings.
+		var settings = {},
+			variants = [];
+
+		//Clients SHOULD refuse to parse Playlists which contain a BOM
+		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
+		if(input.substr(0,7) !== "#EXTM3U"){ throw new Error("Missing EXTM3U tag."); }
+	
+		for(;match; match = linePat.exec(input)){
+			if(match[1]){
+				if(!match[2]){ continue; } //comment line
+				parseTagMaster(match[3], settings);
+			}else{ //Gotta be a URI line
+				var variant = createVariant(match[0], settings);
+				variants.push(variant);
+			}
+		}
+
+		return {
+			settings: settings,
+			variants: variants
+		};
+	}
+
+	function parseTagMaster(line, settings) {
+
+		//Master Playlist Tags
+		match = /-X-MEDIA:(.*)/.exec(line);
+		if(match){
+			parseMediaTag();
+			return;
+		}
+		match = /-X-STREAM-INF:(.*)/.exec(line);
+		if(match){
+			parseStreamInfTag();
+			return;
+		}
+		match = /-X-I-FRAME-STREAM-INF:(.*)/.exec(line);
+		if(match){
+			parseIFrameStreamTag();
+			return;
+		}
+		match = /-X-SESSION-DATA:(.*)/.exec(line);
+		if(match){
+			parseSessionDataTag();
+			return;
+		}
+
+		//Master or Media Playlist Tags
+		match = /-X-VERSION/.exec(line);
+		if(match){
+			parseVersionTag();
+		}
+
+	}
+
+	function parseMediaTag() {
+
+	}
+
+	function parseStreamInfTag() {
+
+	}
+
+	function parseIFrameStreamTag() {
+
+	}
+
+	function parseSessionDataTag() {
+		
+	}
+
 	function parse(baseUrl, input){
 		var match,
 			segments = [],
@@ -520,7 +593,7 @@ var fetchHLSManifests = (function(){
 		});
 	}
 
-	function M3U8Manifest(url){
+	function M3U8Manifest(text, url){
 		this.url = url;
 		this.segments = [];
 		this.listeners = [];
@@ -592,8 +665,38 @@ var fetchHLSManifests = (function(){
 		if(~idx){ this.listeners.splice(idx,1); }
 	};
 
+	function M3U8Master(text) {
+		var parsed = parseMaster(text);
+		this.settings = parsed.settings;
+		this.variants = parsed.variants;
+	}
+
+	function isMaster(text){
+		return false;
+	}
+
+	function manifestsFromMaster(text){
+		var masterPlaylist = new M3U8Master(text);
+		var manifests = [];
+		var variants = masterPlaylist.variants;
+		for(var i = 0; i < variants.length; i++) {
+			var variant = variants[i];
+			var url = variant.url;
+			var text = getManifest(url);
+			var manifest = new M3U8Manifest(text, url);
+			manifests.push(manifest);
+		}
+		return manifests;
+	}
+
 	function fetchHLSManifests(url){
-		return Promise.resolve([new M3U8Manifest(url)]);
+		var text = getManifest(url);
+		if(isMaster(text)) {
+			return manifestsFromMaster(text);
+		}
+		else {
+			return Promise.resolve([new M3U8Manifest(text, url)]);
+		}
 	}
 
 	return fetchHLSManifests;
