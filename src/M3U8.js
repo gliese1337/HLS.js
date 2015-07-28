@@ -54,8 +54,16 @@ var fetchHLSManifests = (function(){
 
 	function parseMaster(input){
 		// TODO: Add default settings.
-		var settings = {},
-			variants = [];
+		var match,
+			variants = [],
+			settings = {
+				renditions = {
+					AUDIO: {},
+					VIDEO: {},
+					SUBTITLES: {},
+					CLOSED-CAPTIONS: {},
+				},
+			};
 
 		//Clients SHOULD refuse to parse Playlists which contain a BOM
 		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
@@ -66,7 +74,7 @@ var fetchHLSManifests = (function(){
 				if(!match[2]){ continue; } //comment line
 				parseTagMaster(match[3], settings);
 			}else{ //Gotta be a URI line
-				var variant = createVariant(match[0], settings);
+				var variant = createVariant(baseUrl, match[0], settings);
 				variants.push(variant);
 			}
 		}
@@ -79,49 +87,102 @@ var fetchHLSManifests = (function(){
 
 	function parseTagMaster(line, settings) {
 
+		//Basic Tags
+		match = /-X-VERSION:(\d+)/.exec(line);
+		if(match){
+			parseVersionTag(settings, match[1]);
+			return;
+		}
+
 		//Master Playlist Tags
 		match = /-X-MEDIA:(.*)/.exec(line);
 		if(match){
-			parseMediaTag();
+			parseMediaTag(settings, parseAttributes(match[1]));
 			return;
 		}
 		match = /-X-STREAM-INF:(.*)/.exec(line);
 		if(match){
-			parseStreamInfTag();
+			parseStreamInfTag(settings, parseAttributes(match[1]));
 			return;
 		}
 		match = /-X-I-FRAME-STREAM-INF:(.*)/.exec(line);
 		if(match){
-			parseIFrameStreamTag();
+			parseIFrameStreamTag(settings, parseAttributes(match[1]));
 			return;
 		}
 		match = /-X-SESSION-DATA:(.*)/.exec(line);
 		if(match){
-			parseSessionDataTag();
+			parseSessionDataTag(settings, parseAttributes(match[1]));
 			return;
 		}
 
-		//Master or Media Playlist Tags
-		match = /-X-VERSION/.exec(line);
-		if(match){
-			parseVersionTag();
+		//Media or Master Playlist tags
+		match = /-X-INDEPENDENT-SEGMENTS/.exec(line);
+		if(match) {
+			parseIndependentSegmentsTag(settings);
+		}
+		match = /-X-START:(.*)/.exec(line);
+		if(match) {
+			parseStartTag(settings, parseAttributes(match[1]));
 		}
 
 	}
 
-	function parseMediaTag() {
+	function parseMediaTag(settings, attrs){
+		assert_master(settings);
+		var rendition = {};
+		var groupId;
+		if(typeof attrs['GROUP-ID'] === 'undefined') {
+			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
+		}
+		else {
+			console.log(attrs['GROUP-ID']);
+			groupId = attrs['GROUP-ID'];
+		}
+		if(typeof attrs.URI === 'undefined') {
+			if(typeof attrs.TYPE !== undefined) {
+				if(attrs.TYPE === 'SUBTITLES') {
+					var msg = "Media tags of type 'SUBTITLES' must have a 'URI' attribute.";
+					throw new Error(msg);
+				}
+			}
+		}
+		else {
+			if(attrs.TYPE) {
+				if(attrs.TYPE === 'CLOSED-CAPTIONS') {
+					var msg = "Media tags of type 'CLOSED-CAPTIONS' must not"
+						+ " have a 'URI' attribute.";
+				}
+			}
+			rendition.uri = attrs.URI;
+		}
+		if(typeof attrs.LANGUAGE !== 'undefined') {
+			rendition.language = attrs.LANGUAGE;
+		}
+		switch(attrs.TYPE) {
+		case void 0:
+			throw new Error("Media tag must have a 'TYPE' attribute.");
+			break;
+		case 'AUDIO':
+
+			break;
+		default:
+			var msg = "Invalid type attribute in media tag: '"
+				+ attrs.TYPE + "' Valid types are 'AUDIO', "
+				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'";
+			throw new Error(msg);
+		}
+	}
+
+	function parseStreamInfTag(settings, attrs){
 
 	}
 
-	function parseStreamInfTag() {
+	function parseIFrameStreamTag(settings, attrs){
 
 	}
 
-	function parseIFrameStreamTag() {
-
-	}
-
-	function parseSessionDataTag() {
+	function parseSessionDataTag(settings, attrs){
 		
 	}
 
