@@ -23,13 +23,14 @@ function parseNALStream(bytes){
 	return nalUnits;
 }
 
-function mergeDeltas(deltas){
+function mergeDeltas(deltas, frame_rate){
 	'use strict';
 	var last_delta = -1,
 		dts_diffs = [],
 		current;
 
 	deltas.forEach(function(delta){
+		if(delta === 0){ delta = frame_rate; }
 		if(delta !== last_delta){
 			current = {sample_count: 1, sample_delta: delta};
 			dts_diffs.push(current);
@@ -79,13 +80,22 @@ function mergeNALUs(nalus,length){
 	return arr;
 }
 
-function video_data(packets){
+function video_data(stream){
 	'use strict';
-	var pps, sps, spsInfo, cropping, duration = 0, offset = 0,
-		samples = [], nalus = [], sizes = [], dts_deltas = [];
+	var packets = stream.packets,
+		pps, sps, spsInfo, cropping,
+		dts_delta, size, isIDR,
+		samples = [], nalus = [],
+		sizes = [], dts_deltas = [],
+		packet = packets[0], offset = 0,
+		duration = 0, zeroes = 0,
+		frame_sum = 0, frame_count = 0,
+		frame_rate, next, len, i;
 
-	packets.forEach(function(packet){
-		var size = 0, isIDR = false;
+	for(i = 1, len = packets.length; i <= len; i++){
+		next = packets[i] || {offset: offset, dts: packet.dts};
+		size = 0;
+		isIDR = false;
 
 		parseNALStream(packet.data).forEach(function(nalUnit){
 			switch(nalUnit[0] & 0x1F){
@@ -103,6 +113,7 @@ function video_data(packets){
 			}
 		});
 
+		sizes.push(size);
 		samples.push({
 			offset: offset,
 			pts: packet.pts,
@@ -110,14 +121,22 @@ function video_data(packets){
 			isIDR: isIDR
 		});
 
-		sizes.push(size);
-		dts_deltas.push(packet.frame_ticks);
+		dts_delta = next.dts - packet.dts;
+		dts_deltas.push(dts_delta);
+		if(dts_delta){
+			duration += dts_delta;
+			frame_sum += dts_delta;
+			frame_count++;
+		}else{
+			zeroes++;
+		}
 
-		duration += packet.frame_ticks;
 		offset += size;
+		packet = next;
+	}
 
-	});
-
+	frame_rate = Math.round(frame_sum / frame_count);
+	duration += zeroes * frame_rate;
 	spsInfo = parseSPS(sps);
 	cropping = spsInfo.frame_cropping;
 
@@ -130,33 +149,32 @@ function video_data(packets){
 		height: (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
 				- (cropping.top + cropping.bottom) * 2,
 		sizes: sizes,
-		dts_diffs: mergeDeltas(dts_deltas),
+		dts_diffs: mergeDeltas(dts_deltas, frame_rate),
 		access_indices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
 								.filter(function(i){ return i !== -1; }),
 		pd_diffs: calcPDDiffs(samples),
-		timescale: 90000,
-		duration: duration / 90000,
+		duration: duration,
 		data: mergeNALUs(nalus, offset)
 	};
 }
 
-var freqList = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
-function audio_data(audio_stream){
+function audio_data(stream, duration){
 	'use strict';
-	var duration = audio_stream.length,
-		audioSize = audio_stream.byteLength,
+	var audioSize = stream.byteLength,
 		audioBuffer = new Uint8Array(audioSize),
 		audioView = new DataView(audioBuffer.buffer),
 		data_length, packet_length, header_length, 
-		samplingFreqIndex, samplingFreq, word, sizes = [],
-		maxAudioSize = 0, woffset = 0, roffset = 0, frames = 0;
+		header, frames, sizes = [], maxAudioSize = 0,
+		woffset = 0, roffset = 0;
 
-	audio_stream.packets.forEach(function(packet){
+	stream.packets.forEach(function(packet){
 		audioBuffer.set(packet.data, woffset);
 		woffset += packet.data.byteLength;
 	});
 
-	for(woffset = 0; roffset < audioSize; frames++){
+	header = audioView.getUint32(2);
+
+	for(woffset = 0; roffset < audioSize;){
 		header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
 		packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
 		data_length = packet_length - header_length;
@@ -171,24 +189,21 @@ function audio_data(audio_stream){
 		}
 	}
 
-	word = audioView.getUint32(2);
-	samplingFreqIndex = (word >> 26) & 0xf;
-	samplingFreq = samplingFreq = freqList[samplingFreqIndex];
+	frames = sizes.length;
 
 	return {
 		type: 'a',
-		profileMinusOne: (word >>> 30),
-		channelConfig: (word >> 22) & 0x7,
-		samplingFreqIndex: samplingFreq,
+		profileMinusOne: (header >>> 30),
+		channelConfig: (header >> 22) & 0x7,
+		samplingFreqIndex: (header >> 26) & 0xf,
 		maxAudioSize: maxAudioSize,
-		maxBitrate: Math.round(maxAudioSize * frames / duration),
-		avgBitrate: Math.round(audioSize / duration),
+		maxBitrate: Math.round(maxAudioSize / (duration / 90000 / frames)),
+		avgBitrate: Math.round(woffset / (duration / 90000)),
 		sizes: sizes,
 		dts_diffs: [{
 			sample_count: frames,
-			sample_delta: duration / frames
+			sample_delta: Math.round(duration / frames)
 		}],
-		timescale: samplingFreq,
 		duration: duration,
 		data: audioBuffer.subarray(0,woffset)
 	};
@@ -198,10 +213,11 @@ function audio_data(audio_stream){
 addEventListener('message', function(event){
 	var msg = event.data,
 		streams = msg.streams,
-		tracks = [];
+		tracks = [], video;
 
-	//if(streams[0xE0]){ tracks.push(video_data(streams[0xE0].packets)); }
-	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
+	video = video_data(streams[0xE0]);
+	//tracks.push(video);
+	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0], video.duration)); }
 
 	postMessage({
 		index: msg.index,

@@ -402,9 +402,9 @@ function mdia(trkdata){
 	view.setUint32(12, 0x6d646864); // mdhd
 	//view.setUint32(20, t); // creation time
 	//view.setUint32(24, t); // modification time
-	view.setUint32(28, trkdata.timescale);
-	view.setUint32(32, Math.round(trkdata.duration*trkdata.timescale));
-	view.setUint32(36, 0x55c40000); // 15-bit lang code 'und' & predefined = 0
+	view.setUint32(28, 90000);
+	view.setUint32(32, trkdata.duration);
+	view.setUint32(36, 0x15c70000); // 15-bit lang code & predefined = 0
 
 	add_atom(atom, hdlr(trkdata));
 	add_atom(atom, minf(trkdata));
@@ -427,7 +427,7 @@ function trak(id, trkdata){
 	//view.setUint32(20, t); // creation time
 	//view.setUint32(24, t); // modification time
 	view.setUint32(28, id);
-	view.setUint32(36, trkdata.duration*1000); //or all 1s
+	view.setUint32(36, trkdata.duration); //or all 1s
 	// reserved, layer(16) & alternate group(16)
 	view.setUint32(48, trkdata.type == 'v' ? 0 : 0x01000000); // volume & more reserved
 	// identity matrix:
@@ -459,8 +459,8 @@ function moov(tracks){
 	view.setUint32(12, 0x6d766864); // mvhd
 	//view.setUint32(20, t); // creation time
 	//view.setUint32(24, t); // modification time
-	view.setUint32(28, 1000); // timescale
-	view.setUint32(32, Math.round(d*1000)); //duration
+	view.setUint32(28, 90000); // timescale
+	view.setUint32(32, d); //duration
 	view.setUint32(36, 0x00010000); // rate = 1.0
 	view.setUint32(40, 0x01000000); // volume = 1.0 + reserved(16)
 	// 64 bits reserved
