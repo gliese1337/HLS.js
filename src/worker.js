@@ -141,62 +141,58 @@ function video_data(packets){
 }
 
 var freqList = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
-function audio_data(packets){
+function audio_data(audio_stream){
 	'use strict';
-	var duration = 0, audioSize = 0,
-		maxAudioSize = 0, offset = 0,
-		raw_data = [], sizes = [], 
-		profileMinusOne, samplingFreq,
-		samplingFreqIndex, channelConfig,
-		frames, header, byt, audioBuffer;
+	var duration = audio_stream.length,
+		audioSize = audio_stream.byteLength,
+		audioBuffer = new Uint8Array(audioSize),
+		audioView = new DataView(audioBuffer.buffer),
+		data_length, packet_length, header_length, 
+		samplingFreqIndex, samplingFreq, word, sizes = [],
+		maxAudioSize = 0, woffset = 0, roffset = 0, frames = 0;
 
-	frames = packets.length;
+	audio_stream.packets.forEach(function(packet){
+		audioBuffer.set(packet.data, woffset);
+		woffset += packet.data.byteLength;
+	});
 
-	header = packets[0].data;
-	byt = header[2];
-	
-	profileMinusOne = byt >>> 6;
-	samplingFreqIndex = (byt >> 2) & 0xf;
-	samplingFreq = freqList[samplingFreqIndex];
-	channelConfig = ((byt<<2)|(header[3] >>> 6)) & 0x7;
+	for(woffset = 0; roffset < audioSize; frames++){
+		header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
+		packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
+		data_length = packet_length - header_length;
 
-	packets.forEach(function(packet){
-		var data = packet.data,
-			header_length = (data[1]&1) ? 7 : 9,
-			data_length = data.byteLength - header_length;
+		audioBuffer.set(audioBuffer.subarray(roffset+header_length, roffset+packet_length), woffset);
 
-		duration += packet.frame_ticks;
-		raw_data.push(data.subarray(header_length));
+		roffset += packet_length;
+		woffset += data_length;
 		sizes.push(data_length);
-		audioSize += data_length;
 		if(maxAudioSize < data_length){
 			maxAudioSize = data_length;
 		}
-	});
+	}
 
-	audioBuffer = new Uint8Array(audioSize);
-	raw_data.forEach(function(data){
-		audioBuffer.set(data, offset);
-		offset += data.byteLength;
-	});
+	word = audioView.getUint32(2);
+	samplingFreqIndex = (word >> 26) & 0xf;
+	samplingFreq = samplingFreq = freqList[samplingFreqIndex];
 
 	return {
 		type: 'a',
-		profileMinusOne: profileMinusOne,
-		channelConfig: channelConfig,
-		samplingFreqIndex: samplingFreqIndex,
+		profileMinusOne: (word >>> 30),
+		channelConfig: (word >> 22) & 0x7,
+		samplingFreqIndex: samplingFreq,
 		maxAudioSize: maxAudioSize,
-		maxBitrate: Math.round(maxAudioSize * frames * 90000 / duration),
-		avgBitrate: Math.round(audioSize * 90000 / duration),
+		maxBitrate: Math.round(maxAudioSize * frames / duration),
+		avgBitrate: Math.round(audioSize / duration),
 		sizes: sizes,
 		dts_diffs: [{
 			sample_count: frames,
-			sample_delta: Math.round(duration * samplingFreq / (90000 * frames))
+			sample_delta: duration / frames
 		}],
 		timescale: samplingFreq,
-		duration: duration / 90000,
-		data: audioBuffer
+		duration: duration,
+		data: audioBuffer.subarray(0,woffset)
 	};
+
 }
 
 addEventListener('message', function(event){
@@ -205,7 +201,7 @@ addEventListener('message', function(event){
 		tracks = [];
 
 	//if(streams[0xE0]){ tracks.push(video_data(streams[0xE0].packets)); }
-	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0].packets)); }
+	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
 
 	postMessage({
 		index: msg.index,

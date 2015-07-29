@@ -27,7 +27,7 @@ function ftyp(){
 
 function mdat(tracks){
 	'use strict';
-	var datas = tracks.map(function(track){ return track.data.buffer; }),
+	var datas = tracks.map(function(track){ return track.data; }),
 		length = datas.reduce(function(p,n){ return p + n.byteLength; },8),
 		buffer = new ArrayBuffer(8),
 		view = new DataView(buffer);
