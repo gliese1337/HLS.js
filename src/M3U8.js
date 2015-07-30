@@ -148,18 +148,13 @@ var fetchHLSManifests = (function(){
 
 	}
 
-	function parseMediaTag(settings, attrs){
-		assert_master(settings);
-		var rendition = {};
-		var name;
-		var type;
-		var groupId;
+	parseMediaTypeAttr(rendition) {
 		switch(attrs.TYPE) {
 		case void 0:
 			throw new Error("Media tag must have a 'TYPE' attribute.");
 			break;
 		case 'AUDIO':
-			type = 'audio';
+			rendition.type = 'audio';
 			break;
 		case 'VIDEO':
 			rendition.type = 'VIDEO'
@@ -176,6 +171,9 @@ var fetchHLSManifests = (function(){
 				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'";
 			throw new Error(msg);
 		}
+	}
+
+	function parseMediaUriAttr(rendition) {
 		if(typeof attrs.URI === 'undefined') {
 			if(typeof attrs.TYPE !== undefined) {
 				if(attrs.TYPE === 'SUBTITLES') {
@@ -195,27 +193,51 @@ var fetchHLSManifests = (function(){
 			}
 			rendition.uri = stripQuotes(attrs.URI);
 		}
+	}
+
+	function parseMediaGroupId(rendition) {
 		if(typeof attrs['GROUP-ID'] === 'undefined') {
 			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
 		}
 		else {
 			assert_quotedString(attrs['GROUP-ID']);
 			console.log(attrs['GROUP-ID']);
-			groupId = stripQuotes(attrs['GROUP-ID']);
+			return stripQuotes(attrs['GROUP-ID']);
 		}
+	}
+
+	function parseMediaLanguage(rendition) {
 		if(typeof attrs.LANGUAGE !== 'undefined') {
 			assert_quotedString(attrs.LANGUAGE);
 			rendition.language = stripQuotes(attrs.LANGUAGE);
 		}
+	}
+
+	function parseMediaAssocLanguage(rendition) {
 		if(typeof attrs['ASSOC-LANGUAGE'] !== 'undefined') {
 			rendition.assocLanguage = stripQuotes(attrs['ASSOC-LANGUAGE']);
 		}
+	}
+
+	function parseMediaName() {
 		if(typeof attrs.NAME === 'undefined') {
 			throw new Error("Media tag must have a 'NAME' attribute.");
 		} else {
 			assert_quotedString(attrs.NAME);
-			name = stripQuotes(attrs.NAME);
+			return stripQuotes(attrs.NAME);
 		}
+	}
+
+	function parseMediaTag(settings, attrs){
+		assert_master(settings);
+		var rendition = {};
+		var name = parseMediaName(rendition);
+		var groupId = parseMediaGroupId(rendition);
+		parseMediaType(rendition);
+		parseMediaUri(rendition);
+		parseMediaLanguage(rendition);
+		parseMediaAssocLanguage(rendition);
+		parseMedia
 		switch(attrs.DEFAULT) {
 		case void 0, 'NO':
 			rendition.default = false;
