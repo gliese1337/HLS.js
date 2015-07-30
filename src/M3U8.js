@@ -85,6 +85,26 @@ var fetchHLSManifests = (function(){
 		};
 	}
 
+	function assert_master(settings){
+		if(settings.list_type === "media"){
+			throw new Error("Cannot use Master tags in Media Playlist");
+		}else{ settings.list_type = "master"; }
+	}
+
+	function assert_quotedString(str) {
+		var lastIndex = attrs.URI.length - 1;
+		if(attrs.URI[0] !== '"' || attrs.URI[lastIndex] !== '"') {
+			var msg = "'URI' attribute of a media tag must"
+				+ " start and end with '\"'";
+			throw new Error(msg);
+		}
+	}
+
+	function stripQuotes(str) {
+		var lastIndex = str.length - 1;
+		return str.substr(1, lastIndex - 1);
+	}
+
 	function parseTagMaster(line, settings) {
 
 		//Basic Tags
@@ -131,13 +151,30 @@ var fetchHLSManifests = (function(){
 	function parseMediaTag(settings, attrs){
 		assert_master(settings);
 		var rendition = {};
+		var name;
+		var type;
 		var groupId;
-		if(typeof attrs['GROUP-ID'] === 'undefined') {
-			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
-		}
-		else {
-			console.log(attrs['GROUP-ID']);
-			groupId = attrs['GROUP-ID'];
+		switch(attrs.TYPE) {
+		case void 0:
+			throw new Error("Media tag must have a 'TYPE' attribute.");
+			break;
+		case 'AUDIO':
+			type = 'audio';
+			break;
+		case 'VIDEO':
+			rendition.type = 'VIDEO'
+			break;
+		case 'SUBTITLES':
+			rendition.type = 'SUBTITLES';
+			break;
+		case 'CLOSED-CAPTIONS':
+			rendition.type = 'CLOSED-CAPTIONS';
+			break;
+		default:
+			var msg = "Invalid type attribute in media tag: '"
+				+ attrs.TYPE + "' Valid types are 'AUDIO', "
+				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'";
+			throw new Error(msg);
 		}
 		if(typeof attrs.URI === 'undefined') {
 			if(typeof attrs.TYPE !== undefined) {
@@ -148,30 +185,130 @@ var fetchHLSManifests = (function(){
 			}
 		}
 		else {
+			assert_quotedString(attrs.URI);
 			if(attrs.TYPE) {
 				if(attrs.TYPE === 'CLOSED-CAPTIONS') {
 					var msg = "Media tags of type 'CLOSED-CAPTIONS' must not"
 						+ " have a 'URI' attribute.";
+					throw new Error(msg);
 				}
 			}
-			rendition.uri = attrs.URI;
+			rendition.uri = stripQuotes(attrs.URI);
+		}
+		if(typeof attrs['GROUP-ID'] === 'undefined') {
+			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
+		}
+		else {
+			assert_quotedString(attrs['GROUP-ID']);
+			console.log(attrs['GROUP-ID']);
+			groupId = stripQuotes(attrs['GROUP-ID']);
 		}
 		if(typeof attrs.LANGUAGE !== 'undefined') {
-			rendition.language = attrs.LANGUAGE;
+			assert_quotedString(attrs.LANGUAGE);
+			rendition.language = stripQuotes(attrs.LANGUAGE);
 		}
-		switch(attrs.TYPE) {
-		case void 0:
-			throw new Error("Media tag must have a 'TYPE' attribute.");
+		if(typeof attrs['ASSOC-LANGUAGE'] !== 'undefined') {
+			rendition.assocLanguage = stripQuotes(attrs['ASSOC-LANGUAGE']);
+		}
+		if(typeof attrs.NAME === 'undefined') {
+			throw new Error("Media tag must have a 'NAME' attribute.");
+		} else {
+			assert_quotedString(attrs.NAME);
+			name = stripQuotes(attrs.NAME);
+		}
+		switch(attrs.DEFAULT) {
+		case void 0, 'NO':
+			rendition.default = false;
 			break;
-		case 'AUDIO':
-
+		case 'YES':
+			rendition.default = true;
 			break;
 		default:
-			var msg = "Invalid type attribute in media tag: '"
-				+ attrs.TYPE + "' Valid types are 'AUDIO', "
-				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'";
+			var msg = "Attribute 'DEFAULT' of media tag must be 'YES'"
+				+ " or 'NO'. Value was '" + attrs.DEFAULT + "'.";
 			throw new Error(msg);
 		}
+		switch(attrs.AUTOSELECT) {
+		case void 0, 'NO':
+			if(rendition.default) {
+				var msg = "Attribute 'AUTOSELECT' must have value 'YES'"
+					+ " if it exists and attribute 'DEFAULT' has a value"
+					+ " of 'YES'."
+			}
+			else {
+				rendition.autoSelect = false;
+			}
+			break;
+		case 'YES':
+			rendition.autoSelect = true;
+			break;
+		default:
+			var msg = "Attribute 'AUTOSELECT' of media tag must be"
+				+ "'YES' or 'NO'. Value was '" + attrs.DEFAULT + "'.";
+			throw new Error(msg);
+		}
+		if(attrs.TYPE === 'SUBTITLES') {
+			switch(attrs.FORCED) {
+			case void 0, 'NO':
+				rendition.forced = false;
+				break;
+			case 'YES':
+				rendition.forced = true;
+				break;
+			default:
+				var msg = "Attribute 'FORCED' of media tag must be"
+					+ "'YES' or 'NO'. Value was '" + attrs.DEFAULT + "'.";
+				throw new Error(msg);
+			}
+		} else if(typeof attrs.FORCED !== 'undefined') {
+			var msg = "'FORCED' attribute of media tag may only"
+				+ " be present if 'TYPE' attribute has value of"
+				+ " 'SUBTITLES'.";
+			throw new Error(msg);
+		}
+		if(attrs.TYPE === 'CLOSED-CAPTIONS') {
+			assert_quotedString(attrs['INSTREAM-ID']);
+			if(typeof attrs['INSTREAM-ID'] === 'undefined') {
+				var msg = "'INSTREAM-ID' attribute must be present"
+					+ " in media tag when 'TYPE' attribute is"
+					+ " 'CLOSED-CAPTIONS'.";
+				throw new Error(msg);
+			}
+			var L21RegExp = /"CC([1-4])"/;
+			var L21Number = L21RegExp.exec(attrs['INSTREAM-ID'])[1];
+			var DTCCRegExp = /"SERVICE(([1-9]|[0-5]\d|6[0-3])"/;
+			var DTCCNumber = DTCCRegExp.exec(attrs['INSTREAM-ID'])[1];
+			var instream = {};
+			if(typeof L21Number !== 'undefined')
+				instream.type = 'CC';
+				instream.channel = parseInt(L21Number);
+				rendition.instream = instream;
+			} else if(typeof DTCCNumber !== 'undefined') {
+				instream.type = 'SERVICE';
+				instream.blockNumber = DTCCNumber;
+				rendition.instream = instream;
+			} else {
+				var msg = "'INSTREAM-ID' attribute must be either"
+					+ " 'CC' followed by a number between 1 and 4,"
+					+ " or 'SERVICE' followed by a number between"
+					+ " 1 and 63.";
+				throw new Error(msg);
+			}
+		} else if(typeof attrs['INSTREAM-ID'] !== 'undefined') {
+			var msg = "'INSTREAM-ID' attribute of media tag may only"
+				+ " be present if 'TYPE' attribute has value of"
+				+ " 'CLOSED-CAPTIONS'.";
+			throw new Error(msg);
+		}
+		if(typeof attrs.CHARACTERISTICS !== 'undefined') {
+			assert_quotedString(attrs.CHARACTERISTICS);
+			var quoteless = stripQuotes(attrs.CHARACTERISTICS);
+			var characteristics = quoteless.split(/,\s*/);
+			rendition.characteristics = characteristics;
+		}
+		
+		settings.groups[groupId] = settings.groups[groupId] || {};
+		settings.groups[groupId][name] = rendition;
 	}
 
 	function parseStreamInfTag(settings, attrs){
@@ -255,12 +392,6 @@ var fetchHLSManifests = (function(){
 		if(settings.list_type === "master"){
 			throw new Error("Cannot use Media Segment tags in Master Playlist");
 		}else{ settings.list_type = "media"; }
-	}
-
-	function assert_master(settings){
-		if(settings.list_type === "media"){
-			throw new Error("Cannot use Master tags in Media Playlist");
-		}else{ settings.list_type = "master"; }
 	}
 
 	function parseTag(line,settings){
