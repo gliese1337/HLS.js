@@ -17,8 +17,10 @@ var TSDemuxer = (function(){
 			this.stream_id = 0;     // MPEG stream id
 			this.content_type = 0;  // 1 - audio, 2 - video
 			this.dts = 0;           // current MPEG stream DTS (presentation time for audio, decode time for video)
+			this.has_dts = false;
 			this.first_pts = 0;
 			this.last_pts = 0;
+			this.has_pts = false;
 			this.frame_ticks = 0;    // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_ticks=fps)
 			this.frame_num = 0;     // frame counter
 
@@ -137,14 +139,12 @@ var TSDemuxer = (function(){
 			return tlist[get_stream_type(type_id)];
 		}
 
-		function decode_pts(mem, p){
-			var pts=((mem.getUint8(p)&0xe)<<29);
-			pts|=((mem.getUint8(p+1)&0xff)<<22);
-			pts|=((mem.getUint8(p+2)&0xfe)<<14);
-			pts|=((mem.getUint8(p+3)&0xff)<<7);
-			pts|=((mem.getUint8(p+4)&0xfe)>>1);
-
-			return pts;
+		function decode_ts(mem, p){
+			return	((mem.getUint8(p)  &0xe )<<29)|
+					((mem.getUint8(p+1)&0xff)<<22)|
+					((mem.getUint8(p+2)&0xfe)<<14)|
+					((mem.getUint8(p+3)&0xff)<< 7)|
+					((mem.getUint8(p+4)&0xfe)>> 1);
 		}
 
 		function decode_pat(mem, ptr, len, pids, pstart){
@@ -268,7 +268,9 @@ var TSDemuxer = (function(){
 		function decode_pes(mem, ptr, len, s, pstart){
 			// PES (Packetized Elementary Stream)
 			var l, pts, dts, hlen, bitmap, stream_id;
-			if(pstart){
+			start: {
+				if(!pstart){ break start; }
+
 				// PES header
 				if(len<6){ return -20; }
 				if(mem.getUint16(ptr) !== 0 || mem.getUint8(ptr+2) !== 1){
@@ -281,55 +283,62 @@ var TSDemuxer = (function(){
 				ptr+=6;
 				len-=6;
 
-				if( (stream_id>=0xbd && stream_id<=0xbf) ||
-					(stream_id>=0xc0 && stream_id<=0xdf) ||
-					(stream_id>=0xe0 && stream_id<=0xef) ||
-					(stream_id>=0xfa && stream_id<=0xfe)   ){
-					// PES header extension
+				if( (stream_id<0xbd || stream_id>0xfe) ||
+					(stream_id>0xbf && stream_id<0xc0) ||
+					(stream_id>0xdf && stream_id<0xe0) ||
+					(stream_id>0xef && stream_id<0xfa) ){
 
-					if(len<3){ return -22; }
+					s.stream_id=0;
+					break start;
+				}
 
-					bitmap=mem.getUint8(ptr+1);
-					hlen=mem.getUint8(ptr+2)+3;
-					if(len<hlen){ return -23; }
-					if(l>0){ l-=hlen; }
+				// PES header extension
+				if(len<3){ return -22; }
 
-					switch(bitmap&0xc0){
-					case 0x80:  // PTS only
-						if(hlen>=8){
-							pts=decode_pts(mem, ptr+3);
-							if(s.dts>0 && pts>s.dts){ s.frame_ticks=pts-s.dts; }
+				bitmap = mem.getUint8(ptr+1);
+				hlen = mem.getUint8(ptr+2)+3;
+				if(len < hlen){ return -23; }
+				if(l > 0){ l-=hlen; }
 
-							s.dts=pts;
-							if(pts>s.last_pts){ s.last_pts=pts; }
-							if(!s.first_pts && s.frame_num===(s.content_type===stream_type.video?1:0)){
-								s.first_pts=pts;
-							}
-						}
-						break;
-					case 0xc0:  // PTS,DTS
-						if(hlen>=13){
-							pts=decode_pts(mem, ptr+3);
-							dts=decode_pts(mem, ptr+8);
-							if(s.dts>0 && dts>s.dts){ s.frame_ticks=dts-s.dts; }
+				switch(bitmap&0xc0){
+				case 0x80:  // PTS only
+					if(hlen < 8){ break; }
+					pts = decode_ts(mem, ptr+3);
 
-							s.dts=dts;
-							if(pts>s.last_pts){ s.last_pts=pts; }
-							if(!s.first_pts && s.frame_num===(s.content_type===stream_type.video?1:0)){
-								s.first_pts=dts;
-							}
-						}
-						break;
+					if(s.has_dts && pts !== s.dts){ s.frame_ticks = pts - s.dts; }
+					if(pts > s.last_pts || !s.has_pts){ s.last_pts = pts; }
+
+					if(s.first_pts === 0 && s.frame_num === (s.content_type===stream_type.video?1:0)){
+						s.first_pts = pts;
 					}
 
-					ptr+=hlen;
-					len-=hlen;
+					s.dts = pts;
+					s.has_dts = true;
+					s.has_pts = true;
+					break;
+				case 0xc0:  // PTS,DTS
+					if(hlen < 13){ break; }
+					pts = decode_ts(mem, ptr+3);
+					dts = decode_ts(mem, ptr+8);
 
-					s.stream_id=stream_id;
-					s.frame_num++;
-				}else{
-					s.stream_id=0;
+					if(s.has_dts && dts > s.dts){ s.frame_ticks = dts - s.dts; }
+					if(pts > s.last_pts || !s.has_pts){ s.last_pts = pts; }
+
+					if(s.first_pts === 0 && s.frame_num === (s.content_type===stream_type.video?1:0)){
+						s.first_pts = pts;
+					}
+
+					s.dts = dts;
+					s.has_dts = true;
+					s.has_pts = true;
+					break;
 				}
+
+				ptr+=hlen;
+				len-=hlen;
+
+				s.stream_id=stream_id;
+				s.frame_num++;
 			}
 
 			if(s.stream_id && s.content_type !== stream_type.unknown){
