@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/* Video Helper Functions */
+
 function parseNALStream(bytes){
 	'use strict';
 	var view = new DataView(bytes.buffer,bytes.byteOffset),
@@ -9,9 +11,10 @@ function parseNALStream(bytes){
 		start, end = 1, nalUnits = [];
 
 	do {
+		// Check # of sync bytes (0x000001 or 0x00000001)
 		end += view.getUint16(end+1)?3:4;
-		start = end;
 		for(start = end; end < len; end++){
+			// Step forward until we hit another 3- or 4-byte header
 			if(view.getUint16(end) === 0 &&
 				(bytes[end+2] === 1 || (view.getUint16(end+2) === 1))){
 				nalUnits.push(bytes.subarray(start, end));
@@ -19,10 +22,15 @@ function parseNALStream(bytes){
 			}
 		}
 	}while(end < len);
+	// A packet can't end with a header,
+	// so one last NAL Unit extends to the end
 	nalUnits.push(bytes.subarray(start));
 	return nalUnits;
 }
 
+// Replace 0-deltas with the mean frame rate in ticks/frame,
+// and merge runs of equal deltas into a single entry
+// Used in the stts box
 function mergeDeltas(deltas, frame_rate){
 	'use strict';
 	var last_delta = -1,
@@ -31,20 +39,31 @@ function mergeDeltas(deltas, frame_rate){
 
 	deltas.forEach(function(delta){
 		if(delta === 0){ delta = frame_rate; }
-		if(delta !== last_delta){
+		dts_diffs.push({sample_count: 1, sample_delta: delta});
+		/*if(delta !== last_delta){
 			current = {sample_count: 1, sample_delta: delta};
 			dts_diffs.push(current);
 			last_delta = delta;
 		}else{
 			current.sample_count++;
-		}
+		}*/
 	});
 	return dts_diffs;
 }
 
+// Calculate presentation-decoding time offsets,
+// and merge runs of equal offsets into a single entry
+// Used in the ctts box
 function calcPDDiffs(samples){
 	'use strict';
-	var current,
+	return samples.map(function(s,i){
+		return {
+			first_chunk: i+1,
+			sample_count: 1,
+			sample_offset: s.pts - s.dts
+		}
+	});
+	/*var current,
 		last_offset = 1/0,
 		pd_diffs = [];
 
@@ -64,19 +83,22 @@ function calcPDDiffs(samples){
 			pd_diffs.push(current);
 		}
 	});
-	return pd_diffs;
+	return pd_diffs;*/
 }
 
+// Merge NAL Units from all packets into a single
+// continuous buffer, separated by 4-byte length headers
 function mergeNALUs(nalus,length){
 	'use strict';
 	var arr = new Uint8Array(length),
 		view = new DataView(arr.buffer),
-		offset = 0;
-	nalus.forEach(function(nalUnit){
-		view.setUint32(offset, nalUnit.byteLength);
-		arr.set(nalUnit, offset+4);
-		offset += nalUnit.byteLength + 4;
-	});
+		unit, offset, i;
+	for(i = 0, offset = 0; offset < length; i++){
+		unit = nalus[i];
+		view.setUint32(offset, unit.byteLength);
+		arr.set(unit, offset+4);
+		offset += unit.byteLength + 4;
+	}
 	return arr;
 }
 
@@ -121,6 +143,7 @@ function video_data(stream){
 			isIDR: isIDR
 		});
 
+		console.log(packet.pts, packet.dts, packet.pts - packet.dts);
 		dts_delta = next.dts - packet.dts;
 		dts_deltas.push(dts_delta);
 		if(dts_delta){
@@ -167,19 +190,29 @@ function audio_data(stream, duration){
 		header, frames, sizes = [], maxAudioSize = 0,
 		woffset = 0, roffset = 0;
 
+	// Copy PES payloads into a single continuous buffer
+	// This accounts for more than one ADTS packet per PES packet,
+	// as well as the possibility of ADTS packets split across PES packets
 	stream.packets.forEach(function(packet){
 		audioBuffer.set(packet.data, woffset);
 		woffset += packet.data.byteLength;
 	});
 
+	// Save 2 bytes of the first header to extract metadata
 	header = audioView.getUint32(2);
 
+	// Shift ADTS payloads in the buffer to eliminate intervening headers
 	for(woffset = 0; roffset < audioSize;){
 		header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
 		packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
 		data_length = packet_length - header_length;
 
-		audioBuffer.set(audioBuffer.subarray(roffset+header_length, roffset+packet_length), woffset);
+		audioBuffer.set(
+			audioBuffer.subarray(
+				roffset+header_length,
+				roffset+packet_length
+			), woffset
+		);
 
 		roffset += packet_length;
 		woffset += data_length;
@@ -216,7 +249,7 @@ addEventListener('message', function(event){
 		tracks = [], video;
 
 	video = video_data(streams[0xE0]);
-	//tracks.push(video);
+	tracks.push(video);
 	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0], video.duration)); }
 
 	postMessage({
