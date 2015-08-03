@@ -38,15 +38,13 @@ function mergeDeltas(deltas, frame_rate){
 		current;
 
 	deltas.forEach(function(delta){
-		if(delta === 0){ delta = frame_rate; }
-		dts_diffs.push({sample_count: 1, sample_delta: delta});
-		/*if(delta !== last_delta){
+		if(delta !== last_delta){
 			current = {sample_count: 1, sample_delta: delta};
 			dts_diffs.push(current);
 			last_delta = delta;
 		}else{
 			current.sample_count++;
-		}*/
+		}
 	});
 	return dts_diffs;
 }
@@ -56,14 +54,7 @@ function mergeDeltas(deltas, frame_rate){
 // Used in the ctts box
 function calcPDDiffs(samples){
 	'use strict';
-	return samples.map(function(s,i){
-		return {
-			first_chunk: i+1,
-			sample_count: 1,
-			sample_offset: s.pts - s.dts
-		}
-	});
-	/*var current,
+	var current,
 		last_offset = 1/0,
 		pd_diffs = [];
 
@@ -83,7 +74,7 @@ function calcPDDiffs(samples){
 			pd_diffs.push(current);
 		}
 	});
-	return pd_diffs;*/
+	return pd_diffs;
 }
 
 // Merge NAL Units from all packets into a single
@@ -143,7 +134,6 @@ function video_data(stream){
 			isIDR: isIDR
 		});
 
-		console.log(packet.pts, packet.dts, packet.pts - packet.dts);
 		dts_delta = next.dts - packet.dts;
 		dts_deltas.push(dts_delta);
 		if(dts_delta){
