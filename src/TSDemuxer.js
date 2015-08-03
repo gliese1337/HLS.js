@@ -150,34 +150,34 @@ var TSDemuxer = (function(){
 		function decode_pat(mem, ptr, len, pids, pstart){
 			var s, i, n, l, pid, program;
 			if(pstart){
-				if(len<1){ return -6; }
+				if(len<1){ return 6; }
 				ptr+=1; // skip pointer field
 				len-=1;
 			}
 
 			if(mem.getUint8(ptr)!==0x00){ return 0; } // not a PAT after all
-			if(len<8){ return -7; }
+			if(len<8){ return 7; }
 
 			l=mem.getUint16(ptr+1);
-			if((l&0xb000)!==0xb000){ return -8; }
+			if((l&0xb000)!==0xb000){ return 8; }
 
 			l&=0x0fff;
 			len-=3;
 
-			if(l>len){ return -9; }
+			if(l>len){ return 9; }
 
 			len-=5;
 			ptr+=8;
 			l-=5+4;
 
-			if(l%4){ return -10; }
+			if(l%4){ return 10; }
 
 			n=l/4;
 			for(i=0;i<n;i++){
 				program=mem.getUint16(ptr);
 				pid=mem.getUint16(ptr+2);
 
-				if((pid&0xe000)!==0xe000){ return -11; }
+				if((pid&0xe000)!==0xe000){ return 11; }
 
 				pid&=0x1fff;
 				ptr+=4;
@@ -197,19 +197,19 @@ var TSDemuxer = (function(){
 		function decode_pmt(mem, ptr, len, pids, s, pstart){
 			var ss, ll, l, n, pid, type;
 			if(pstart){
-				if(len<1){ return -12; }
+				if(len<1){ return 12; }
 
 				ptr+=1;     // skip pointer field
 				len-=1;
 
 				if(mem.getUint8(ptr)!==0x02){ return 0; } // not a PMT after all
-				if(len<12){ return -13; }
+				if(len<12){ return 13; }
 
 				l=mem.getUint16(ptr+1);
-				if((l&0x3000)!==0x3000){ return -14; }
+				if((l&0x3000)!==0x3000){ return 14; }
 
 				l=(l&0x0fff)+3;
-				if(l>512){ return -141; }
+				if(l>512){ return 15; }
 
 				pmt.reset(l);
 
@@ -219,7 +219,7 @@ var TSDemuxer = (function(){
 
 				if(pmt.offset<pmt.len){ return 0; } // wait for next part
 			}else{
-				if(!pmt.offset){ return -142; }
+				if(!pmt.offset){ return 16; }
 
 				l=pmt.len-pmt.offset;
 				ll=len>l?l:len;
@@ -233,22 +233,22 @@ var TSDemuxer = (function(){
 			ptr=pmt.ptr;
 			l=pmt.len;
 			n=(mem.getUint16(ptr+10)&0x0fff)+12;
-			if(n>l){ return -15; }
+			if(n>l){ return 17; }
 
 			ptr+=n;
 			len-=n;
 			l-=n+4;
 
 			while(l){
-				if(l<5){ return -16; }
+				if(l<5){ return 18; }
 
 				type=mem.getUint8(ptr);
 				pid=mem.getUint16(ptr+1);
-				if((pid&0xe000)!==0xe000){ return -17; }
+				if((pid&0xe000)!==0xe000){ return 19; }
 
 				pid&=0x1fff;
 				ll=(mem.getUint16(ptr+3)&0x0fff)+5;
-				if(ll>l){ return -18; }
+				if(ll>l){ return 20; }
 
 				ptr+=ll;
 				l-=ll;
@@ -272,9 +272,9 @@ var TSDemuxer = (function(){
 				if(!pstart){ break start; }
 
 				// PES header
-				if(len<6){ return -20; }
+				if(len<6){ return 21; }
 				if(mem.getUint16(ptr) !== 0 || mem.getUint8(ptr+2) !== 1){
-					return -21;
+					return 22;
 				}
 
 				stream_id=mem.getUint8(ptr+3);
@@ -293,11 +293,11 @@ var TSDemuxer = (function(){
 				}
 
 				// PES header extension
-				if(len<3){ return -22; }
+				if(len<3){ return 23; }
 
 				bitmap = mem.getUint8(ptr+1);
 				hlen = mem.getUint8(ptr+2)+3;
-				if(len < hlen){ return -23; }
+				if(len < hlen){ return 24; }
 				if(l > 0){ l-=hlen; }
 
 				switch(bitmap&0xc0){
@@ -350,14 +350,13 @@ var TSDemuxer = (function(){
 
 		function demux_packet(mem, ptr, len, pids){
 			var s, l, pid, flags, payload_start;
-			if(len!==188){ return -1; }  // invalid packet length
-			if(mem.getUint8(ptr)!==0x47){ return -2; }   // invalid packet sync byte
+			if(mem.getUint8(ptr)!==0x47){ return 2; }   // invalid packet sync byte
 
 			pid=mem.getUint16(ptr+1);
 			flags=mem.getUint8(ptr+3);
 
-			if(pid&0x8000){ return -3; }// transport error
-			if(flags&0xc0){ return -4; }// scrambled
+			if(pid&0x8000){ return 3; }// transport error
+			if(flags&0xc0){ return 4; }// scrambled
 
 			payload_start=pid&0x4000;
 			pid&=0x1fff;
@@ -370,7 +369,7 @@ var TSDemuxer = (function(){
 
 			if(flags&0x20){ // skip adaptation field
 				l=mem.getUint8(ptr)+1;
-				if(l>len){ return -5; }
+				if(l>len){ return 5; }
 
 				ptr+=l;
 				len-=l;
@@ -393,7 +392,7 @@ var TSDemuxer = (function(){
 			for(ptr=0;true;ptr+=l){
 				length = len - ptr;
 				if(!length){ return 0; }
-				if(length<l){ return -1; } // incompleted TS packet
+				if(length<l){ return 1; } // incompleted TS packet
 
 				n = demux_packet(mem, ptr, l, pids);
 				if(n){ return n; }  // invalid packet
@@ -448,6 +447,33 @@ var TSDemuxer = (function(){
 		)
 	);
 
+	var errcodes = [
+		"Error 1: Incomplete TS Packet",
+		"Error 2: Invalid Sync Byte",
+		"Error 3: Transport Error",
+		"Error 4: Packet Scrambled",
+		"Error 5: Adaptation Field Overflows File Length",
+		"Error 6: Incomplete PES Packet (Possibly PAT)",
+		"Error 7: Incomplete PAT",
+		"Error 8: ???",
+		"Error 9: PAT Overflows File Length",
+		"Error 10: PAT Body Not a Multiple of 4 Bytes",
+		"Error 11: ???",
+		"Error 12: Incomplete PES Packet (Possibly PMT)",
+		"Error 13: Incomplete PMT",
+		"Error 14: ???",
+		"Error 15: ???",
+		"Error 16: ???",
+		"Error 17: ???",
+		"Error 18: ???",
+		"Error 19: ???",
+		"Error 20: ???",
+		"Error 21: Incomplete PES Packet Header",
+		"Error 22: Invalid PES Header",
+		"Error 23: PES Packet Not Long Enough for Extended Header",
+		"Error 24: PES Header Overflows File Length"
+	];
+
 	function TSDemuxer(){
 		var worker = new Worker(blobURL),
 			job = 0, jobs = {};
@@ -458,7 +484,7 @@ var TSDemuxer = (function(){
 
 			data.n === 0 ?
 				jobs[job].resolve(data):
-				jobs[job].reject(-data.n);
+				jobs[job].reject(new Error(errcodes[data.n-1]));
 			delete jobs[job];
 		},false);
 
