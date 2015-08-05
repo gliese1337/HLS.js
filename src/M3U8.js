@@ -52,27 +52,28 @@ var fetchHLSManifests = (function(){
 		return attrs;
 	}
 
-	function parseMaster(input){
+	function parseMaster(baseUrl, input){
 		// TODO: Add default settings.
-		var match,
+		var match = linePat.exec(input),
 			variants = [],
 			settings = {
-				renditions = {
+				renditions: {
 					AUDIO: {},
 					VIDEO: {},
 					SUBTITLES: {},
-					CLOSED-CAPTIONS: {},
+					'CLOSED-CAPTIONS': {},
 				},
 			};
 
 		//Clients SHOULD refuse to parse Playlists which contain a BOM
 		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
 		if(input.substr(0,7) !== "#EXTM3U"){ throw new Error("Missing EXTM3U tag."); }
-	
+		
+		
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
-				parseTagMaster(match[3], settings);
+				parseTagMaster(match[3], settings, baseUrl);
 			}else{ //Gotta be a URI line
 				var variant = createVariant(baseUrl, match[0], settings);
 				variants.push(variant);
@@ -105,7 +106,8 @@ var fetchHLSManifests = (function(){
 		return str.substr(1, lastIndex - 1);
 	}
 
-	function parseTagMaster(line, settings) {
+	function parseTagMaster(line, settings, baseUrl) {
+		var match;
 
 		//Basic Tags
 		match = /-X-VERSION:(\d+)/.exec(line);
@@ -127,7 +129,7 @@ var fetchHLSManifests = (function(){
 		}
 		match = /-X-I-FRAME-STREAM-INF:(.*)/.exec(line);
 		if(match){
-			parseIFrameStreamTag(settings, parseAttributes(match[1]));
+			parseIFrameStreamTag(settings, parseAttributes(match[1]), baseUrl);
 			return;
 		}
 		match = /-X-SESSION-DATA:(.*)/.exec(line);
@@ -148,7 +150,7 @@ var fetchHLSManifests = (function(){
 
 	}
 
-	parseMediaTypeAttr(rendition) {
+	function parseMediaType(rendition, attrs) {
 		switch(attrs.TYPE) {
 		case void 0:
 			throw new Error("Media tag must have a 'TYPE' attribute.");
@@ -173,7 +175,7 @@ var fetchHLSManifests = (function(){
 		}
 	}
 
-	function parseMediaUriAttr(rendition) {
+	function parseMediaUriAttr(rendition, attrs) {
 		if(typeof attrs.URI === 'undefined') {
 			if(typeof attrs.TYPE !== undefined) {
 				if(attrs.TYPE === 'SUBTITLES') {
@@ -195,7 +197,7 @@ var fetchHLSManifests = (function(){
 		}
 	}
 
-	function parseMediaGroupId(rendition) {
+	function parseMediaGroupId(attrs) {
 		if(typeof attrs['GROUP-ID'] === 'undefined') {
 			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
 		}
@@ -206,20 +208,20 @@ var fetchHLSManifests = (function(){
 		}
 	}
 
-	function parseMediaLanguage(rendition) {
+	function parseMediaLanguage(rendition, attrs) {
 		if(typeof attrs.LANGUAGE !== 'undefined') {
 			assert_quotedString(attrs.LANGUAGE);
 			rendition.language = stripQuotes(attrs.LANGUAGE);
 		}
 	}
 
-	function parseMediaAssocLanguage(rendition) {
+	function parseMediaAssocLanguage(rendition, attrs) {
 		if(typeof attrs['ASSOC-LANGUAGE'] !== 'undefined') {
 			rendition.assocLanguage = stripQuotes(attrs['ASSOC-LANGUAGE']);
 		}
 	}
 
-	function parseMediaName() {
+	function parseMediaName(attrs) {
 		if(typeof attrs.NAME === 'undefined') {
 			throw new Error("Media tag must have a 'NAME' attribute.");
 		} else {
@@ -228,16 +230,7 @@ var fetchHLSManifests = (function(){
 		}
 	}
 
-	function parseMediaTag(settings, attrs){
-		assert_master(settings);
-		var rendition = {};
-		var name = parseMediaName(rendition);
-		var groupId = parseMediaGroupId(rendition);
-		parseMediaType(rendition);
-		parseMediaUri(rendition);
-		parseMediaLanguage(rendition);
-		parseMediaAssocLanguage(rendition);
-		parseMedia
+	function parseMediaDefault(rendition, attrs) {
 		switch(attrs.DEFAULT) {
 		case void 0, 'NO':
 			rendition.default = false;
@@ -250,6 +243,9 @@ var fetchHLSManifests = (function(){
 				+ " or 'NO'. Value was '" + attrs.DEFAULT + "'.";
 			throw new Error(msg);
 		}
+	}
+
+	function parseMediaAutoSelect(rendition, attrs) {
 		switch(attrs.AUTOSELECT) {
 		case void 0, 'NO':
 			if(rendition.default) {
@@ -269,6 +265,9 @@ var fetchHLSManifests = (function(){
 				+ "'YES' or 'NO'. Value was '" + attrs.DEFAULT + "'.";
 			throw new Error(msg);
 		}
+	}
+
+	function parseMediaForced(rendition, attrs) {
 		if(attrs.TYPE === 'SUBTITLES') {
 			switch(attrs.FORCED) {
 			case void 0, 'NO':
@@ -288,6 +287,9 @@ var fetchHLSManifests = (function(){
 				+ " 'SUBTITLES'.";
 			throw new Error(msg);
 		}
+	}
+
+	function parseMediaInstreamId(rendition, attrs) {
 		if(attrs.TYPE === 'CLOSED-CAPTIONS') {
 			assert_quotedString(attrs['INSTREAM-ID']);
 			if(typeof attrs['INSTREAM-ID'] === 'undefined') {
@@ -301,7 +303,7 @@ var fetchHLSManifests = (function(){
 			var DTCCRegExp = /"SERVICE(([1-9]|[0-5]\d|6[0-3])"/;
 			var DTCCNumber = DTCCRegExp.exec(attrs['INSTREAM-ID'])[1];
 			var instream = {};
-			if(typeof L21Number !== 'undefined')
+			if(typeof L21Number !== 'undefined') {
 				instream.type = 'CC';
 				instream.channel = parseInt(L21Number);
 				rendition.instream = instream;
@@ -322,27 +324,191 @@ var fetchHLSManifests = (function(){
 				+ " 'CLOSED-CAPTIONS'.";
 			throw new Error(msg);
 		}
+	}
+
+	function parseMediaCharacteristics(rendition, attrs) {
 		if(typeof attrs.CHARACTERISTICS !== 'undefined') {
 			assert_quotedString(attrs.CHARACTERISTICS);
 			var quoteless = stripQuotes(attrs.CHARACTERISTICS);
 			var characteristics = quoteless.split(/,\s*/);
 			rendition.characteristics = characteristics;
 		}
-		
+	}
+
+	function parseMediaTag(settings, attrs){
+		assert_master(settings);
+
+		var rendition = {};
+		var name = parseMediaName(attrs);
+		var groupId = parseMediaGroupId(attrs);
+
+		parseMediaType(rendition, attrs);
+		parseMediaUri(rendition, attrs);
+		parseMediaLanguage(rendition, attrs);
+		parseMediaAssocLanguage(rendition, attrs);
+		parseMediaDefault(rendition, attrs);
+		parseMediaAutoSelect(rendition, attrs);
+		parseMediaForced(rendition, attrs);
+		parseMediaInstreamId(rendition, attrs);
+		parseMediaCharacteristics(rendition, attrs);
+				
 		settings.groups[groupId] = settings.groups[groupId] || {};
 		settings.groups[groupId][name] = rendition;
 	}
 
-	function parseStreamInfTag(settings, attrs){
-
+	function parseStreamInfBandwidth(settings, attrs) {
+		if(attrs.BANDWIDTH) {
+			settings.bandwidth = parseInt(attrs.BANDWIDTH);
+		}
+		else {
+			var msg = "StreamInf tab must have"
+				+ " 'BANDWIDTH' attribute";
+			throw new Error(msg);
+		}
 	}
 
-	function parseIFrameStreamTag(settings, attrs){
+	function parseStreamInfAverageBandwidth(settings, attrs) {
+		if(attrs['AVERAGE-BANDWIDTH']) {
+			settings.avgBandwidth = parseInt(attrs['AVERAGE-BANDWIDTH']);
+		}
+	}
 
+	function parseStreamInfCodecs(settings, attrs) {
+		if(attrs.CODECS) {
+			assert_quotedString(attrs.CODECS);
+			var codecsStr = stripQuotes(attrs.CODECS);
+			settings.codecs = codecsStr.split(',');
+		}
+	}
+
+	function parseStreamInfResolution(settings, attrs) {
+		if(attrs.RESOLUTION){
+			var resArr = attrs.RESOLUTION.split('x');
+			var resolution = {
+				width: resArr[0],
+				height: resArr[0],
+			}
+			settings.resolution = resolution;
+		}
+	}
+
+	function parseStreamInfAudio(settings, attrs) {
+		if(attrs.AUDIO) {
+			assert_quotedString(attrs.AUDIO);
+			var audioStr = stripQuotes(attrs.AUDIO);
+			var audio = settings.renditions[audioStr] || undefined;
+			if(!audio || audio.type !== 'AUDIO') {
+				var msg = "'AUDIO' attribute in streamInf tag"
+				+ " must match the 'GROUP-ID' attribute of a"
+				+ " media tag of type 'AUDIO'";
+			} else {
+				settings.audio = audio;
+			}
+		}
+	}
+
+	function parseStreamInfVideo(settings, attrs) {
+		if(attrs.VIDEO) {
+			assert_quotedString(attrs.VIDEO);
+			var videoStr = stripQuotes(attrs.VIDEO);
+			var video = settings.renditions[videoStr] || undefined;
+			if(!video || video.type !== 'VIDEO') {
+				var msg = "'VIDEO' attribute in streamInf tag"
+				+ " must match the 'GROUP-ID' attribute of a"
+				+ " media tag of type 'VIDEO'";
+			} else {
+				settings.video = video;
+			}
+		}
+	}
+
+	function parseStreamInfSubtitles(settings, attrs) {
+		if(attrs.SUBTITLES) {
+			assert_quotedString(attrs.SUBTITLES);
+			var subtitlesStr = stripQuotes(attrs.SUBTITLES);
+			var subs = settings.renditions[subtitlesStr] || undefined;
+			if(!subs || subs.type !== 'SUBTITLES') {
+				var msg = "'SUBTITLES' attribute in streamInf tag"
+				+ " must match the 'GROUP-ID' attribute of a"
+				+ " media tag of type 'SUBTITLES'";
+			} else {
+				settings.subtitles = subs;
+			}
+		}
+	}
+
+	function parseStreamInfClosedCaptions(settings, attrs) {
+		if(attrs['CLOSED-CAPTIONS']) {
+			assert_quotedString(attrs['CLOSED-CAPTIONS']);
+			var ccStr = stripQuotes(attrs['CLOSED-CAPTIONS']);
+			var cc = settings.renditions[ccStr] || undefined;
+			if(!cc || cc.type !== 'CLOSED-CAPTIONS') {
+				var msg = "'CLOSED-CAPTIONS' attribute in streamInf tag"
+				+ " must match the 'GROUP-ID' attribute of a"
+				+ " media tag of type 'CLOSED-CAPTIONS'.";
+			} else {
+				settings.closedCaptions = cc;
+			}
+		}
+	}
+
+	function parseStreamInfTag(settings, attrs){
+		assert_master(settings);
+
+		parseStreamInfBandwidth(settings, attrs);
+		parseStreamInfAverageBandwidth(settings, attrs);
+		parseStreamInfCodecs(settings, attrs);
+		parseStreamInfResolution(settings, attrs);
+		parseStreamInfAudio(settings, attrs);
+		parseStreamInfVideo(settings, attrs);
+		parseStreamInfSubtitles(settings, attrs);
+		parseStreamInfClosedCaptions(settings, attrs);
+	}
+
+	function parseIFrameStreamTag(settings, attrs, baseUrl){
+		assert_master(settings);
+
+		parseStreamInfBandwidth(settings);
+		parseStreamInfAverageBandwidth(settings, attrs);
+		parseStreamInfCodecs(settings, attrs);
+		parseStreamInfResolution(settings, attrs);
+		parseStreamInfVideo(settings, attrs);
+		parseIFrameStreamUri(settings, attrs, baseUrl);
+
+		createVariant(baseUrl, attrs.URI, settings);
 	}
 
 	function parseSessionDataTag(settings, attrs){
-		
+		assert_quotedString(attrs['DATA-ID']);
+		var key = stripQuotes(attrs['DATA-ID']);
+		var value;
+		if(attrs['VALUE']) {
+			value = stripQuotes(attrs['VALUE']);
+		} else if(attrs['URI']) {
+			value = getJSONFromUrl(attrs['URI']);
+		}
+		settings.session[key] = {};
+		settings.session[key].value = value;
+		if(attrs['LANGUAGE']) {
+			var language = parseLanguage(attrs.LANGUAGE);
+			settings.session[key].language = language;
+		}
+	}
+
+	function createVariant(baseUrl, line, settings) {
+
+		var variant = {
+			uri: resolveURL(baseUrl, line),
+			bandwidth: settings.bandwidth,
+			averageBandwidth: settings.avgBandwidth,
+			codecs: settings.codecs,
+			video: settings.video,
+			audio: settings.audio,
+			subtitles: settings.subtitles,
+			closedCaptions: settings.closedCaptions,
+		}
+
+		return variant;
 	}
 
 	function parse(baseUrl, input){
@@ -879,38 +1045,39 @@ var fetchHLSManifests = (function(){
 		if(~idx){ this.listeners.splice(idx,1); }
 	};
 
-	function M3U8Master(text) {
-		var parsed = parseMaster(text);
+	function M3U8Master(text, url) {
+		var parsed = parseMaster(url, text);
 		this.settings = parsed.settings;
 		this.variants = parsed.variants;
 	}
 
 	function isMaster(text){
-		return false;
+		return !~text.indexOf('EXTINF');
 	}
 
-	function manifestsFromMaster(text){
-		var masterPlaylist = new M3U8Master(text);
+	function manifestsFromMaster(text, url){
+		var masterPlaylist = new M3U8Master(text, url);
 		var manifests = [];
 		var variants = masterPlaylist.variants;
 		for(var i = 0; i < variants.length; i++) {
 			var variant = variants[i];
-			var url = variant.url;
-			var text = getManifest(url);
-			var manifest = new M3U8Manifest(text, url);
+			var mediaUrl = variant.uri;
+			var text = getManifest(mediaUrl);
+			var manifest = new M3U8Manifest(text, mediaUrl);
 			manifests.push(manifest);
 		}
 		return manifests;
 	}
 
 	function fetchHLSManifests(url){
-		var text = getManifest(url);
-		if(isMaster(text)) {
-			return manifestsFromMaster(text);
-		}
-		else {
-			return Promise.resolve([new M3U8Manifest(text, url)]);
-		}
+		return getManifest(url).then(function(text) {
+			if(isMaster(text)) {
+				return manifestsFromMaster(text, url);
+			}
+			else {
+				return Promise.resolve([new M3U8Manifest(text, url)]);
+			}
+		});
 	}
 
 	return fetchHLSManifests;
