@@ -93,8 +93,8 @@ var fetchHLSManifests = (function(){
 	}
 
 	function assert_quotedString(str) {
-		var lastIndex = attrs.URI.length - 1;
-		if(attrs.URI[0] !== '"' || attrs.URI[lastIndex] !== '"') {
+		var lastIndex = str.length - 1;
+		if(str[0] !== '"' || str[lastIndex] !== '"') {
 			var msg = "'URI' attribute of a media tag must"
 				+ " start and end with '\"'";
 			throw new Error(msg);
@@ -664,7 +664,6 @@ var fetchHLSManifests = (function(){
 	}
 
 	function parseVersionTag(settings,num){
-		assert_media(settings);
 		if(settings.hasVersion){ throw new Error("Duplicate X-VERSION tags."); }
 		if(settings.hasSegments){ throw new Error("X-VERSION tag must preceded media segments."); }
 		settings.hasVersion = true;
