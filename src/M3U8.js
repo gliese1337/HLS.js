@@ -564,7 +564,7 @@ var fetchHLSManifests = (function(){
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
-				parseTag(match[3], settings);
+				parseTag(match[3], settings, baseUrl);
 			}else{ //Gotta be a URI line
 				segments.push(createSegment(baseUrl, match[0], settings));
 			}
@@ -582,7 +582,7 @@ var fetchHLSManifests = (function(){
 		}else{ settings.list_type = "media"; }
 	}
 
-	function parseTag(line,settings){
+	function parseTag(line,settings,baseUrl){
 		var match;
 		//Media Segment Tags
 		match = /INF:(\d+(\.\d+)?),.*/.exec(line);
@@ -602,7 +602,7 @@ var fetchHLSManifests = (function(){
 		}
 		match = /-X-KEY:(.*)$/.exec(line);
 		if(match){
-			parseKeyTag(settings, parseAttributes(match[1]));
+			parseKeyTag(settings, parseAttributes(match[1]), baseUrl);
 			return;
 		}
 		match = /-X-MAP:(.*)/.exec(line);
@@ -791,7 +791,7 @@ var fetchHLSManifests = (function(){
 		//settings.dateTime = validateDateTime(date);
 	}
 
-	function parseKeyTag(settings,attrs){
+	function parseKeyTag(settings,attrs,baseUrl){
 		/* It applies to every Media Segment that appears between
 		 * it and the next EXT-X-KEY tag in the Playlist file with the same
 		 * KEYFORMAT attribute (or the end of the Playlist file).
@@ -815,7 +815,8 @@ var fetchHLSManifests = (function(){
 			return;
 		case "AES-128":
 			if(attrs.URI === void 0){ throw new Error("Missing Encryption Key URI."); }
-			key = validateString(attrs.URI);
+			var keyStr = validateString(attrs.URI);
+			key = resolveURL(baseUrl, keyStr);
 
 			if(attrs.IV == void 0){
 				iv = "";
