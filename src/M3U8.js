@@ -68,15 +68,13 @@ var fetchHLSManifests = (function(){
 		//Clients SHOULD refuse to parse Playlists which contain a BOM
 		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
 		if(input.substr(0,7) !== "#EXTM3U"){ throw new Error("Missing EXTM3U tag."); }
-		
-		
+
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
 				parseTagMaster(match[3], settings, baseUrl);
 			}else{ //Gotta be a URI line
-				var variant = createVariant(baseUrl, match[0], settings);
-				variants.push(variant);
+				variants.push(createVariant(baseUrl, match[0], settings));
 			}
 		}
 
@@ -1045,38 +1043,22 @@ var fetchHLSManifests = (function(){
 		if(~idx){ this.listeners.splice(idx,1); }
 	};
 
-	function M3U8Master(text, url) {
-		var parsed = parseMaster(url, text);
-		this.settings = parsed.settings;
-		this.variants = parsed.variants;
-	}
-
 	function isMaster(text){
 		return !~text.indexOf('EXTINF');
 	}
 
 	function manifestsFromMaster(text, url){
-		var masterPlaylist = new M3U8Master(text, url);
-		var manifests = [];
-		var variants = masterPlaylist.variants;
-		for(var i = 0; i < variants.length; i++) {
-			var variant = variants[i];
+		return parseMaster(url, text).variants.map(function(variant){
 			var mediaUrl = variant.uri;
-			var text = getManifest(mediaUrl);
-			var manifest = new M3U8Manifest(text, mediaUrl);
-			manifests.push(manifest);
-		}
-		return manifests;
+			return new M3U8Manifest(getManifest(mediaUrl), mediaUrl);
+		});
 	}
 
 	function fetchHLSManifests(url){
 		return getManifest(url).then(function(text) {
-			if(isMaster(text)) {
-				return manifestsFromMaster(text, url);
-			}
-			else {
-				return Promise.resolve([new M3U8Manifest(text, url)]);
-			}
+			return isMaster(text)?
+				manifestsFromMaster(text, url):
+				[new M3U8Manifest(text, url)];
 		});
 	}
 

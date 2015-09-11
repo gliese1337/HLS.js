@@ -249,6 +249,7 @@ var HLSPlayer = (function(){
 		});
 
 		fetchHLSManifests(manifestURL).then(function(mlist){
+			if(mlist.length === 0){ throw new Error("No Playlists Provided"); }
 			mlist[0].listen(function(segments){
 				var times = [], b = 0;
 
