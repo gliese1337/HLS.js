@@ -300,7 +300,7 @@ var fetchHLSManifests = (function(){
 			}
 			var L21RegExp = /"CC([1-4])"/;
 			var L21Number = L21RegExp.exec(attrs['INSTREAM-ID'])[1];
-			var DTCCRegExp = /"SERVICE(([1-9]|[0-5]\d|6[0-3])"/;
+			var DTCCRegExp = /"SERVICE([1-9]|[0-5]\d|6[0-3])"/;
 			var DTCCNumber = DTCCRegExp.exec(attrs['INSTREAM-ID'])[1];
 			var instream = {};
 			if(typeof L21Number !== 'undefined') {
