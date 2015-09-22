@@ -121,11 +121,6 @@ var HLSPlayer = (function(){
 			that.emit('timeupdate',null);
 		}, false);
 
-		var a = document.createElement('a');
-		a.href = data.url;
-		a.textContent = "Download";
-		document.body.appendChild(a);
-
 		video.src = data.url;
 		video.load();
 	}
