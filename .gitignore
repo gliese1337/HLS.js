@@ -45,3 +45,5 @@ Temporary Items
 # Miscellaneous
 *.mp4
 *.exe
+
+streams/*

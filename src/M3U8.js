@@ -904,8 +904,8 @@ var fetchHLSManifests = (function(){
 			seqNo: settings.sequenceNo,
 			discSeqNo: settings.discontinuitySequence,
 			duration: settings.duration,
-			offset: 0,
-			byteLen: NaN,
+			isRange: false,
+			offset: 0, byteLen: 0,
 			encryption: null
 		}
 
@@ -916,6 +916,7 @@ var fetchHLSManifests = (function(){
 			if(!settings.hasOffset && line !== settings.lastByteRange){
 				throw new Error("Missing byte range offset");
 			}
+			segment.isRange = true;
 			segment.offset = settings.offset;
 			segment.bytelen = settings.rangelen;
 			settings.offset += settings.rangelen;

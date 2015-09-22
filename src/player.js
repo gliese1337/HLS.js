@@ -39,10 +39,23 @@ var HLSPlayer = (function(){
 			// Request segment data
 			var xhr = new XMLHttpRequest();
 			xhr.responseType = "arraybuffer";
-			xhr.addEventListener('load', function(){
-				resolve(this.response);
-			},false);
 			xhr.open("GET", seg.uri, true);
+	
+			if(seg.isRange){
+				xhr.setRequestHeader("Range",
+					"bytes="+seg.offset.toString(10) + "-" +
+					(seg.offset+seg.bytelen-1).toString(10)
+				);
+				xhr.addEventListener('load', function(){
+					if(this.status !== 206){ throw new Error("Incorrect Response Type"); }
+					resolve(this.response);
+				},false);
+			}else{
+				xhr.addEventListener('load', function(){
+					resolve(this.response);
+				},false);
+			}
+
 			xhr.send();
 		})).then(function(arrbuffer){
 			// Decrypt data if necessary
