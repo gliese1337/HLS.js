@@ -973,60 +973,93 @@ var fetchHLSManifests = (function(){
 	}
 
 	function M3U8Manifest(text, url){
+		var that = this;
 		this.url = url;
 		this.segments = [];
 		this.listeners = [];
+		this.lastRefresh = +(new Date);
+		this.refreshInterval = 1/0;
+		this.mutability = "";
+		this.finished = false;
+		this.playing = false;
 
-		this.refresh();
-	}
-
-	M3U8Manifest.prototype.refresh = function(){
-		var that = this, settings;
 		getManifest(this.url).then(function(text){
-			var obj = parse(that.url, text);
-			settings = obj.settings;
+			var obj = parse(that.url, text),
+				settings = obj.settings;
+			that.mutability = settings.mutability;
+			that.finished = settings.isFinished;
+			that.refreshInterval = settings.targetDuration*1000;
 			return obj.segments;
 		}).then(function(segments){
-			var waitFraction = 1000;
-			//TODO: compare with previous segment list
-			// to generate diffs & determine the proper wait time
 			that.segments = segments;
-
-/*
-   The client MUST periodically reload the Media Playlist file unless it
-   contains the EXT-X-ENDLIST tag.
-
-   However the client MUST NOT attempt to reload the Playlist file more
-   frequently than specified by this section.
-
-   When a client loads a Playlist file for the first time or reloads a
-   Playlist file and finds that it has changed since the last time it
-   was loaded, the client MUST wait for at least the target duration
-   before attempting to reload the Playlist file again, measured from
-   the last time the client began loading the Playlist file.
-
-   If the client reloads a Playlist file and finds that it has not
-   changed then it MUST wait for a period of one-half the target
-   duration before retrying.
-
-   ...
-   
-   HOWEVER, "If the tag is present and has a value of VOD, the Playlist file MUST NOT change."
-   So there's really no point in reloading it in that case.
-*/
-
-			//Turn this on once the player is updated to handle
-			//changes in the minfest
-			/*if(settings.mutability !== "VOD" &&
-				!(settings.mutability === "EVENT" && settings.isFinished)){
-				setTimeout(
-					function(){ that.refresh(); },
-					settings.targetDuration*waitFraction
-				);
-			}*/
-
-			that.emit(segments);
+			that.emit({"add": segments, "remove": []});
 		});
+	}
+	function diff_segments(o, n){
+		var oseq = o.map(function(s){ return s.seqNo; }),
+			nseq = n.map(function(s){ return s.seqNo; });
+		return {
+			add: n.filter(function(s){ return oseq.indexOf(s.seqNo) === -1; }),
+			remove: o.filter(function(s){ return nseq.indexOf(s.seqNo) === -1; })
+		};
+	}
+
+	/*
+	The client MUST periodically reload the Media Playlist file unless it
+	is VOD or contains the EXT-X-ENDLIST tag.
+
+	However, the client MUST NOT reload the Playlist file too frequently.
+
+	When a client loads a Playlist and finds that it has changed, the
+	client MUST wait for at least the target duration before attempting
+	to reload the Playlist file again, measured from the last time the
+	client began loading the Playlist file.
+
+	If the client reloads a Playlist and finds that it has not changed
+	then it MUST wait for a period of one-half the target duration.
+	*/
+	function refresh(that){
+		var duration;
+		if(!that.playing){ return; }
+		if(that.mutability === "VOD"){ return; }
+		if(that.mutability === "EVENT" && that.isFinished){ return; }
+
+		that.lastRefresh = +(new Date);
+		getManifest(that.url).then(function(text){
+			var obj = parse(that.url, text),
+				settings = obj.settings;
+			that.mutability = settings.mutability;
+			that.finished = settings.isFinished;
+			duration = settings.targetDuration;
+		}).then(function(segments){
+			var changes = diff_segments(that.segments, segments),
+				changed = (changes.add.length > 0 || changes.remove.length > 0);
+			that.segments = segments;
+			if(changed){
+				that.emit(changes);
+				that.refreshInterval = duration*1000;
+			}else{
+				that.refreshInterval = duration*500;
+			}
+			if(that.playing){
+				setTimeout(
+					refresh.bind(null,that),
+					Math.max(0, that.refreshInterval - ((+(new Date)) - that.lastRefresh))
+				);
+			}
+		});
+	};
+
+	M3U8Manifest.prototype.play = function(){
+		this.playing = true;
+		setTimeout(
+			refresh.bind(null,this),
+			Math.max(0, this.refreshInterval - ((+(new Date)) - this.lastRefresh))
+		);
+	};
+
+	M3U8Manifest.prototype.pause = function(){
+		this.playing = false;
 	};
 
 	M3U8Manifest.prototype.emit = function(segments){
