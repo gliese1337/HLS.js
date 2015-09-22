@@ -155,11 +155,13 @@ var TSDemuxer = (function(){
 				len-=1;
 			}
 
+			//check table ID
 			if(mem.getUint8(ptr)!==0x00){ return 0; } // not a PAT after all
 			if(len<8){ return 7; }
 
+			// check flag bits and length
 			l=mem.getUint16(ptr+1);
-			if((l&0xb000)!==0xb000){ return 8; }
+			if((l&0xb000)!==0xb000){ return 8; } // invalid header
 
 			l&=0x0fff;
 			len-=3;
@@ -177,6 +179,7 @@ var TSDemuxer = (function(){
 				program=mem.getUint16(ptr);
 				pid=mem.getUint16(ptr+2);
 
+				// 3 reserved bits should be on
 				if((pid&0xe000)!==0xe000){ return 11; }
 
 				pid&=0x1fff;
@@ -205,8 +208,9 @@ var TSDemuxer = (function(){
 				if(mem.getUint8(ptr)!==0x02){ return 0; } // not a PMT after all
 				if(len<12){ return 13; }
 
+				// check flag bits and length
 				l=mem.getUint16(ptr+1);
-				if((l&0x3000)!==0x3000){ return 14; }
+				if((l&0x3000)!==0x3000){ return 14; } // invalid header
 
 				l=(l&0x0fff)+3;
 				if(l>512){ return 15; }
@@ -244,7 +248,7 @@ var TSDemuxer = (function(){
 
 				type=mem.getUint8(ptr);
 				pid=mem.getUint16(ptr+1);
-				if((pid&0xe000)!==0xe000){ return 19; }
+				if((pid&0xe000)!==0xe000){ return 19; } // invalid flag bits
 
 				pid&=0x1fff;
 				ll=(mem.getUint16(ptr+3)&0x0fff)+5;
@@ -455,19 +459,19 @@ var TSDemuxer = (function(){
 		"Error 5: Adaptation Field Overflows File Length",
 		"Error 6: Incomplete PES Packet (Possibly PAT)",
 		"Error 7: Incomplete PAT",
-		"Error 8: ???",
+		"Error 8: Invalid PAT Header",
 		"Error 9: PAT Overflows File Length",
-		"Error 10: PAT Body Not a Multiple of 4 Bytes",
-		"Error 11: ???",
+		"Error 10: PAT Body Isn't a Multiple of the Entry Size (32 bits)",
+		"Error 11: Invalid PAT Entry",
 		"Error 12: Incomplete PES Packet (Possibly PMT)",
 		"Error 13: Incomplete PMT",
-		"Error 14: ???",
-		"Error 15: ???",
-		"Error 16: ???",
-		"Error 17: ???",
-		"Error 18: ???",
-		"Error 19: ???",
-		"Error 20: ???",
+		"Error 14: Invalid PMT Header",
+		"Error 15: PMT Length Too Large",
+		"Error 16: PMT Doesn't Start at Beginning of TS Packet Payload",
+		"Error 17: Program Info Oveflows PMT Length",
+		"Error 18: Incomplete Elementary Stream Info",
+		"Error 19: Invalid Elementary Stream Header",
+		"Error 20: Elementary Stream Data Overflows PMT",
 		"Error 21: Incomplete PES Packet Header",
 		"Error 22: Invalid PES Header",
 		"Error 23: PES Packet Not Long Enough for Extended Header",
