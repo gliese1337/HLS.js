@@ -434,8 +434,11 @@ function trak(id, trkdata){
 	view.setUint32(52, 0x01000000  );
 	view.setUint32(68, 0x00010000);
 	view.setUint32(88, 0x40000000);
-	view.setUint32(92, (trkdata.width&0xffff)<<16); // 16.16 width, ignoring fractional part
-	view.setUint32(96, (trkdata.height&0xffff)<<16); // 16.16 height, ignoring fractional part
+	
+	var trkWidth  = trkdata.type == 'v' ? trkdata.width  : 0;
+	var trkHeight = trkdata.type == 'v' ? trkdata.height : 0;
+	view.setUint32(92, (trkWidth & 0xffff)<<16);  // 16.16 width, ignoring fractional part
+	view.setUint32(96, (trkHeight & 0xffff)<<16); // 16.16 height, ignoring fractional part
 
 	add_atom(atom, mdia(trkdata));
 
