@@ -429,16 +429,18 @@ function trak(id, trkdata){
 	view.setUint32(28, id);
 	view.setUint32(36, trkdata.duration); //or all 1s
 	// reserved, layer(16) & alternate group(16)
-	view.setUint32(48, trkdata.type == 'v' ? 0 : 0x01000000); // volume & more reserved
+	// set volume at byte 48 later
 	// identity matrix:
-	view.setUint32(52, 0x01000000  );
+	view.setUint32(52, 0x01000000);
 	view.setUint32(68, 0x00010000);
 	view.setUint32(88, 0x40000000);
-	
-	var trkWidth  = trkdata.type == 'v' ? trkdata.width  : 0;
-	var trkHeight = trkdata.type == 'v' ? trkdata.height : 0;
-	view.setUint32(92, (trkWidth & 0xffff)<<16);  // 16.16 width, ignoring fractional part
-	view.setUint32(96, (trkHeight & 0xffff)<<16); // 16.16 height, ignoring fractional part
+
+	if(trkdata.type === 'a'){
+		view.setUint32(48, 0x01000000); // volume & reserved bits
+	}else{
+		view.setUint32(92, (trkdata.width & 0xffff)<<16);  // 16.16 width, ignoring fractional part
+		view.setUint32(96, (trkdata.height & 0xffff)<<16); // 16.16 height, ignoring fractional part
+	}
 
 	add_atom(atom, mdia(trkdata));
 
