@@ -3,15 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 var MP4 = (function(){
+	'use strict';
 
 	function add_atom(atom, sub_atom){
-		'use strict';
 		atom.size += sub_atom.size;
 		atom.box.push.apply(atom.box, sub_atom.box);
 	}
 
 	function ftyp(){
-		'use strict';
 		var buffer = new ArrayBuffer(32),
 			view = new DataView(buffer);
 
@@ -28,7 +27,6 @@ var MP4 = (function(){
 	}
 
 	function mdat(tracks){
-		'use strict';
 		var datas = tracks.map(function(track){ return track.data; }),
 			length = datas.reduce(function(p,n){ return p + n.byteLength; },8),
 			buffer = new ArrayBuffer(8),
@@ -40,7 +38,6 @@ var MP4 = (function(){
 	}
 
 	function hdlr(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(45),
 			view = new DataView(buffer);
 
@@ -63,7 +60,6 @@ var MP4 = (function(){
 	}
 
 	function vmhd(){
-		'use strict';
 		var buffer = new ArrayBuffer(20),
 			view = new DataView(buffer);
 
@@ -76,7 +72,6 @@ var MP4 = (function(){
 	}
 
 	function smhd(){
-		'use strict';
 		var buffer = new ArrayBuffer(16),
 			view = new DataView(buffer);
 
@@ -88,7 +83,6 @@ var MP4 = (function(){
 	}
 
 	function dinf(){
-		'use strict';
 		var buffer = new ArrayBuffer(37),
 			view = new DataView(buffer);
 
@@ -109,7 +103,6 @@ var MP4 = (function(){
 	}
 
 	function stts(dts_diffs){
-		'use strict';
 		var i, j,
 			c = dts_diffs.length,
 			l = c * 8 + 16,
@@ -130,7 +123,6 @@ var MP4 = (function(){
 	}
 
 	function ctts(pd_diffs){
-		'use strict';
 		var i, j,
 			c = pd_diffs.length,
 			l = c * 8 + 16,
@@ -150,7 +142,6 @@ var MP4 = (function(){
 	}
 
 	function stss(indices){
-		'use strict';
 		var i, j, c = indices.length,
 			l = c * 4 + 16,
 			buffer = new ArrayBuffer(l),
@@ -168,7 +159,6 @@ var MP4 = (function(){
 	}
 
 	function stsz(sizes){
-		'use strict';
 		var i, j, c = sizes.length,
 			l = c * 4 + 20,
 			buffer = new ArrayBuffer(l),
@@ -186,7 +176,6 @@ var MP4 = (function(){
 	}
 
 	function stsc(samples){
-		'use strict';
 		var buffer = new ArrayBuffer(28),
 			view = new DataView(buffer);
 
@@ -201,7 +190,6 @@ var MP4 = (function(){
 	}
 
 	function stco(offset){
-		'use strict';
 		var buffer = new ArrayBuffer(20),
 			view = new DataView(buffer);
 
@@ -214,7 +202,6 @@ var MP4 = (function(){
 	}
 
 	function avcC(trkdata){
-		'use strict';
 		var i, j,
 			sps = trkdata.sps,
 			pps = trkdata.pps,
@@ -249,7 +236,6 @@ var MP4 = (function(){
 	}
 
 	function avc1(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(86),
 			view = new DataView(buffer),
 			atom = {size: 86, box: [buffer]};
@@ -276,7 +262,6 @@ var MP4 = (function(){
 	}
 
 	function esds(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(51),
 			view = new DataView(buffer),
 			freqIndex = trkdata.samplingFreqIndex,
@@ -314,7 +299,6 @@ var MP4 = (function(){
 	}
 
 	function mp4a(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(36),
 			view = new DataView(buffer),
 			atom = {size: 36, box: [buffer]};
@@ -337,7 +321,6 @@ var MP4 = (function(){
 	}
 
 	function stsd(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(16),
 			view = new DataView(buffer),
 			atom = {size: 16, box: [buffer]};
@@ -352,7 +335,6 @@ var MP4 = (function(){
 	}
 
 	function stbl(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(8),
 			view = new DataView(buffer),
 			atom = {size: 8, box: [buffer]};
@@ -377,7 +359,6 @@ var MP4 = (function(){
 	}
 
 	function minf(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(8),
 			view = new DataView(buffer),
 			atom = {size: 8, box: [buffer]};
@@ -393,7 +374,6 @@ var MP4 = (function(){
 	}
 
 	function mdia(trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(40),
 			view = new DataView(buffer),
 			atom = {size: 40, box: [buffer]};
@@ -416,7 +396,6 @@ var MP4 = (function(){
 	}
 
 	function trak(id, trkdata){
-		'use strict';
 		var buffer = new ArrayBuffer(100),
 			view = new DataView(buffer),
 			atom = {size: 100, box: [buffer]};
@@ -451,7 +430,6 @@ var MP4 = (function(){
 	}
 
 	function moov(tracks){
-		'use strict';
 		var d, buffer = new ArrayBuffer(116),
 			view = new DataView(buffer),
 			atom = {size: 116, box: [buffer]};
@@ -485,7 +463,6 @@ var MP4 = (function(){
 	}
 
 	return function MP4(tracks){
-		'use strict';
 		var offset,
 			atom = {size: 0, box: []};
 
