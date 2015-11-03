@@ -154,7 +154,7 @@ function video_data(stream){
 	cropping = spsInfo.frame_cropping;
 
 	return {
-		type: 'v',
+		type: 'video',
 		pps: pps, sps: sps,
 		spsInfo: spsInfo,
 		width: (spsInfo.pic_width_in_mbs * 16)
@@ -215,7 +215,7 @@ function audio_data(stream, duration){
 	frames = sizes.length;
 
 	return {
-		type: 'a',
+		type: 'audio',
 		profileMinusOne: (header >>> 30),
 		channelConfig: (header >> 22) & 0x7,
 		samplingFreqIndex: (header >> 26) & 0xf,
@@ -244,6 +244,6 @@ addEventListener('message', function(event){
 
 	postMessage({
 		index: msg.index,
-		url: URL.createObjectURL(MP4(tracks))
+		url: URL.createObjectURL(MP4.File(tracks))
 	});
 });
