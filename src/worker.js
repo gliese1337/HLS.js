@@ -171,14 +171,19 @@ function video_data(stream){
 	};
 }
 
-function audio_data(stream, duration){
+var sampleRates = [
+	96000, 88200, 64000, 48000, 44100, 32000,
+	24000, 22050, 16000, 12000, 11025, 8000, 7350
+];
+
+function audio_data(stream){
 	'use strict';
 	var audioSize = stream.byteLength,
 		audioBuffer = new Uint8Array(audioSize),
 		audioView = new DataView(audioBuffer.buffer),
+		sizes = [], maxAudioSize = 0, woffset = 0, roffset = 0,
 		data_length, packet_length, header_length, 
-		header, frames, sizes = [], maxAudioSize = 0,
-		woffset = 0, roffset = 0;
+		duration, header, frames, freqIndex;
 
 	// Copy PES payloads into a single continuous buffer
 	// This accounts for more than one ADTS packet per PES packet,
@@ -197,6 +202,11 @@ function audio_data(stream, duration){
 		packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
 		data_length = packet_length - header_length;
 
+		// Empirically, there's always 1 AAC/ADTS frame,
+		// and frequency is constant per stream segment
+		//console.log("AAC frames per ADTS frame:", (audioView.getUint8(roffset+6) & 3) + 1);
+		//console.log("Sampling Frequency:", (audioView.getUint8(roffset+2) >> 2) & 0xf);
+
 		audioBuffer.set(
 			audioBuffer.subarray(
 				roffset+header_length,
@@ -213,21 +223,23 @@ function audio_data(stream, duration){
 	}
 
 	frames = sizes.length;
+	freqIndex = (header >> 26) & 0xf;
+	duration = frames * 1024 / sampleRates[freqIndex];
 
 	return {
 		type: 'audio',
 		profileMinusOne: (header >>> 30),
 		channelConfig: (header >> 22) & 0x7,
-		samplingFreqIndex: (header >> 26) & 0xf,
+		samplingFreqIndex: freqIndex,
 		maxAudioSize: maxAudioSize,
-		maxBitrate: Math.round(maxAudioSize / (duration / 90000 / frames)),
-		avgBitrate: Math.round(woffset / (duration / 90000)),
+		maxBitrate: Math.round(maxAudioSize / (duration / frames)),
+		avgBitrate: Math.round(woffset / duration),
 		sizes: sizes,
 		dts_diffs: [{
 			sample_count: frames,
-			sample_delta: Math.round(duration / frames)
+			sample_delta: Math.round(90000 * duration / frames)
 		}],
-		duration: duration,
+		duration: Math.round(90000 * duration),
 		data: audioBuffer.subarray(0,woffset)
 	};
 
@@ -236,11 +248,10 @@ function audio_data(stream, duration){
 addEventListener('message', function(event){
 	var msg = event.data,
 		streams = msg.streams,
-		tracks = [], video;
+		tracks = [];
 
-	video = video_data(streams[0xE0]);
-	tracks.push(video);
-	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0], video.duration)); }
+	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0])); }
+	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
 
 	postMessage({
 		index: msg.index,
