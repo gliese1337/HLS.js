@@ -121,7 +121,7 @@ var HLSPlayer = (function(){
 			that.emit('timeupdate',null);
 		}, false);
 
-		video.src = data.url;
+		video.src = URL.createObjectURL(new Blob([data.file], {type:'video/mp4'}));
 		video.load();
 	}
 

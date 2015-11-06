@@ -5,7 +5,23 @@
 var MP4 = (function(){
 	'use strict';
 
-	var arraytypes = [ArrayBuffer, Uint32Array, Uint8Array];
+	/*
+	 * DataViews on ArrayBuffers are used throughout to construct binary data;
+	 * this choice was made for the following reasons:
+	 *
+	 * 1. There are a lot of zeros in an MP4 file. Declaring binary data with
+	 *    array literals results in a big blocks of zeroes, and it's nice to
+	 *    only have to declare the non-zero values.
+	 * 2. Many box types contain heterogenous, non-aligned data. DataViews
+	 *    make that relatively easy to deal with. Otherwise, we'd have to do a
+	 *    *lot* more bitshifting, even if we declared an empty array and just
+	 *    filled in the non-zero slots.
+	 * 3. Assigning to typed arrays for types larger than 8 bits provides no
+	 *    guarantees about endianness. Since bitshifting to stuff things into
+	 *    Uint8Arrays is a pain, it's a lot easier to just use DataView, which
+	 *    does guarantee endianness, rather than checking platform endianness.
+	 */
+
 	var boxtypes = {};
 
 	function toInt(s){
@@ -24,10 +40,10 @@ var MP4 = (function(){
 			boxtypes[type] = toInt(type);
 		}
 
-		(payload instanceof Array?payload:[payload])
+		(payload instanceof Array?payload:[].slice.call(arguments, 1))
 		.forEach(function(p){
 			size += p.byteLength;
-			if(arraytypes.some(function(t){ return p instanceof t; }))
+			if(p instanceof ArrayBuffer || p instanceof Uint8Array)
 			{ box.push(p); }
 			else{ box.push.apply(box, p.box); }
 		}, 8);
@@ -38,16 +54,29 @@ var MP4 = (function(){
 		return {byteLength: size, box: box};
 	}
 
+	function merge(){
+		var i = 0, boxes = [].slice.call(arguments),
+			size = boxes.reduce(function(a, n){ return a + n.byteLength; }, 0),
+			arr = new Uint8Array(size);
+		boxes.forEach(function(b){
+			b.box.forEach(function(chunk){
+				if(chunk instanceof ArrayBuffer){ chunk = new Uint8Array(chunk); }
+				arr.set(chunk, i);
+				i += chunk.byteLength;
+			});
+		});
+		return arr;
+	}
+
 	function ftyp(){
-		var buffer = new ArrayBuffer(24),
+		var buffer = new ArrayBuffer(20),
 			view = new DataView(buffer);
 
 		view.setUint32(0, 0x69736f6d); //major brand 'isom'
-		view.setUint32(4, 512); //minor version
+		view.setUint32(4, 1); //minor version
 		view.setUint32(8, 0x69736f6d); //isom
-		view.setUint32(12, 0x69736f32); //iso2
-		view.setUint32(16, 0x61766331); //avc1
-		view.setUint32(20, 0x6d703431); //mp41
+		view.setUint32(12, 0x61766331); //avc1
+		view.setUint32(16, 0x6d703431); //mp41
 
 		return box('ftyp', buffer);
 	}
@@ -57,11 +86,34 @@ var MP4 = (function(){
 		return box('mdat', datas);
 	}
 
-	function hdlr(trkdata){
+	/** MOOV SECTION
+		moov
+			mvhd
+			trak
+				tkhd
+				mdia
+					mdhd
+					hdlr
+					minf
+						smhd / vmhd
+						dinf > dref
+						stbl
+							stsd
+								mp4a > esds
+								avc1 > avcC
+							stts
+							stsc
+							stsz
+							stco
+							stss
+							ctts
+	**/
+
+	function hdlr(track){
 		var buffer = new ArrayBuffer(37),
 			view = new DataView(buffer);
 
-		if(trkdata.type==='video'){
+		if(track.type==='video'){
 			view.setUint32(8, 0x76696465); // vide
 			view.setUint32(24, 0x56696465); // 'Vide'
 			view.setUint32(28, 0x6f48616e); // 'oHan'
@@ -79,7 +131,6 @@ var MP4 = (function(){
 	function vmhd(){
 		var buffer = new ArrayBuffer(12),
 			view = new DataView(buffer);
-		//Can't just use new Uint32Array([...]) because endianness is not guaranteed
 		view.setUint32(0, 1); // version & flags
 		// graphicsmode(16) & opcolor(16)[3]
 		return box('vmhd', buffer);
@@ -109,107 +160,13 @@ var MP4 = (function(){
 		return box('dinf', dref());
 	}
 
-	function stts(trkdata){
+	function avcC(track){
 		var i, j,
-			dts_diffs = trkdata.dts_diffs,
-			c = dts_diffs.length,
-			buffer = new ArrayBuffer(c * 8 + 8),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(4, c); // entry count
-
-		for(i=0, j=8; i < c; i++, j+=8){
-			view.setUint32(j, dts_diffs[i].sample_count);
-			view.setUint32(j+4, dts_diffs[i].sample_delta);
-		}
-
-		return box('stts', buffer);
-	}
-
-	function ctts(trkdata){
-		var i, j,
-			pd_diffs = trkdata.pd_diffs,
-			c = pd_diffs.length,
-			buffer = new ArrayBuffer(c * 8 + 8),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(4, c); // entry count
-
-		for(i=0, j=8; i < c; i++, j+=8){
-			view.setUint32(j, pd_diffs[i].sample_count);
-			view.setUint32(j+4, pd_diffs[i].sample_offset);
-		}
-
-		return box('ctts', buffer);
-	}
-
-	function stss(trkdata){
-		var i, j,
-			indices = trkdata.access_indices,
-			c = indices.length,
-			buffer = new ArrayBuffer(c * 4 + 8),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(4, c); // entry count
-
-		for(i=0, j=8; i < c; i++, j+=4){
-			view.setUint32(j, indices[i]);
-		}
-
-		return box('stss', buffer);
-	}
-
-	function stsz(trkdata){
-		var i, j,
-			sizes = trkdata.sizes,
-			c = sizes.length,
-			buffer = new ArrayBuffer(c * 4 + 12),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(8, c); // sample count
-
-		for(i=0, j=12; i < c; i++, j+=4){
-			view.setUint32(j, sizes[i]);
-		}
-
-		return box('stsz', buffer);
-	}
-
-	function stsc(trkdata){
-		var buffer = new ArrayBuffer(20),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(4, 1);
-		view.setUint32(8, 1);
-		view.setUint32(12, trkdata.sizes.length); // sample count
-		view.setUint32(16, 1);
-
-		return box('stsc', buffer);
-	}
-
-	function stco(trkdata){
-		var buffer = new ArrayBuffer(12),
-			view = new DataView(buffer);
-
-		//version & flags are zero
-		view.setUint32(4, 1);
-		view.setUint32(8, trkdata.byte_offset);
-
-		return box('stco', buffer);
-	}
-
-	function avcC(trkdata){
-		var i, j,
-			sps = trkdata.sps,
-			pps = trkdata.pps,
+			sps = track.sps,
+			pps = track.pps,
 			spslen = sps.byteLength,
 			ppslen = pps.byteLength,
-			spsInfo = trkdata.spsInfo,
+			spsInfo = track.spsInfo,
 			buffer = new ArrayBuffer(spslen + ppslen + 11),
 			view = new DataView(buffer);
 
@@ -234,7 +191,7 @@ var MP4 = (function(){
 		return box('avcC', buffer);
 	}
 
-	function avc1(trkdata){
+	function avc1(track){
 		var buffer = new ArrayBuffer(78),
 			view = new DataView(buffer);
 
@@ -242,8 +199,8 @@ var MP4 = (function(){
 		view.setUint16(6, 1); // data reference index
 		// VisualSampleEntry data
 		// 4 words / 16 bytes predefined & reserved space, all zeroes
-		view.setUint16(24, trkdata.width); // width
-		view.setUint16(26, trkdata.height); // height
+		view.setUint16(24, track.width); // width
+		view.setUint16(26, track.height); // height
 		view.setUint32(28, 0x00480000); // 72dpi horiz res.
 		view.setUint32(32, 0x00480000); // 72dpi vert res.
 		// 4 bytes reserved
@@ -252,15 +209,15 @@ var MP4 = (function(){
 		view.setUint16(74, 24); // bit depth
 		view.setUint16(76, 0xffff); // predefined
 
-		return box('avc1', [buffer, avcC(trkdata)]);
+		return box('avc1', buffer, avcC(track));
 	}
 
-	function esds(trkdata){
+	function esds(track){
 		var buffer = new ArrayBuffer(43),
 			view = new DataView(buffer),
-			freqIndex = trkdata.samplingFreqIndex,
-			objectType = trkdata.profileMinusOne + 1,
-			channelConf = trkdata.channelConfig;
+			freqIndex = track.samplingFreqIndex,
+			objectType = track.profileMinusOne + 1,
+			channelConf = track.channelConfig;
 
 		//4 bytes version & flags = 0
 		//ES_Descriptor
@@ -274,8 +231,8 @@ var MP4 = (function(){
 		// streamType = 5 (Audio), upStream = 0, reserved = 0, bufferSize = 0
 		view.setUint32(16, 0x14401500);
 		// 2 more bytes of bufferSize = 0
-		view.setUint32(22, trkdata.maxBitrate);
-		view.setUint32(26, trkdata.avgBitrate);
+		view.setUint32(22, track.maxBitrate);
+		view.setUint32(26, track.avgBitrate);
 
 		// DecoderSpecificInfo
 		view.setUint32(30, 0x05808080); // DecSpecificInfoTag
@@ -300,7 +257,7 @@ var MP4 = (function(){
 		24000, 22050, 16000, 12000, 11025, 8000, 7350
 	];
 
-	function mp4a(trkdata){
+	function mp4a(track){
 		var buffer = new ArrayBuffer(28),
 			view = new DataView(buffer);
 
@@ -308,90 +265,220 @@ var MP4 = (function(){
 		view.setUint16(6, 1); // data reference index
 		// AudioSampleEntry data
 		// 8 bytes reserved
-		view.setUint16(16, channelCount(trkdata.channelConfig));
+		view.setUint16(16, channelCount(track.channelConfig));
 		view.setUint16(18, 16); // sample size
 		// 4 bytes reserved
-		view.setUint32(24, sampleRates[trkdata.samplingFreqIndex]<<16);
+		view.setUint32(24, sampleRates[track.samplingFreqIndex]<<16);
 
 		// mp4a extends AudioSampleEntry with ESDBox
-		return box('mp4a', [buffer, esds(trkdata)]);
+		return box('mp4a', buffer, esds(track));
 	}
 
-	function stsd(trkdata){
+	function stsd(track){
 		var buffer = new ArrayBuffer(8),
 			view = new DataView(buffer);
 		view.setUint32(4, 1); // entry count
-		return box('stsd', [
-			buffer,
-			trkdata.type === 'video'?
-			avc1(trkdata):mp4a(trkdata)
-		]);
+		return box('stsd', buffer,
+			track.type === 'video'?
+			avc1(track):mp4a(track)
+		);
 	}
 
-	function stbl(trkdata){
-		var subboxes = [stsd, stts, stsc, stsz, stco];
+	function stts(track){
+		var i, j, c,
+			buffer, view,
+			dts_diffs, current,
+			last_delta = -1;
 
-		if(trkdata.type === 'video'){
-			subboxes.push(stss);
-			if(trkdata.pd_diffs.length){
-				subboxes.push(ctts);
+		// merge runs of identical deltas
+		dts_diffs = [];
+		track.samples.forEach(function(sample){
+			var delta = sample.duration;
+			if(delta !== last_delta){
+				current = {sample_count: 1, sample_delta: delta};
+				dts_diffs.push(current);
+				last_delta = delta;
+			}else{
+				current.sample_count++;
 			}
+		});
+
+		c = dts_diffs.length;
+		buffer = new ArrayBuffer(c * 8 + 8),
+		view = new DataView(buffer);
+
+		//version & flags are zero
+		view.setUint32(4, c); // entry count
+
+		for(i=0, j=8; i < c; i++, j+=8){
+			view.setUint32(j, dts_diffs[i].sample_count);
+			view.setUint32(j+4, dts_diffs[i].sample_delta);
 		}
 
-		return box('stbl', subboxes.map(function(b){ return b(trkdata); }));
+		return box('stts', buffer);
 	}
 
-	function minf(trkdata){
-		return box('minf', [
-			(trkdata.type === 'video'?vmhd:smhd)(),
-			dinf(), stbl(trkdata)
-		]);
+	function stsz(track){
+		var i, j,
+			samples = track.samples,
+			c = samples.length,
+			buffer = new ArrayBuffer(c * 4 + 12),
+			view = new DataView(buffer);
+
+		//version & flags are zero
+		//sample_size(32) = 0
+		view.setUint32(8, c); // sample count
+
+		for(i=0, j=12; i < c; i++, j+=4){
+			view.setUint32(j, samples[i].size);
+		}
+
+		return box('stsz', buffer);
 	}
 
-	function mdhd(trkdata){
+	function stsc(track){
+		var buffer = new ArrayBuffer(20),
+			view = new DataView(buffer);
+
+		//version & flags are zero
+		view.setUint32(4, 1); // entry count
+		view.setUint32(8, 1); // first chunk
+		view.setUint32(12, track.samples.length); // sample count
+		view.setUint32(16, 1); // sample description index
+
+		return box('stsc', buffer);
+	}
+
+	function stco(track){
+		var buffer = new ArrayBuffer(12),
+			view = new DataView(buffer);
+
+		//version & flags are zero
+		view.setUint32(4, 1); // entry count
+		view.setUint32(8, track.byte_offset);
+
+		return box('stco', buffer);
+	}
+
+	function stss(track){
+		var i, j,
+			indices = track.samples
+				.map(function(s,i){ return s.isIDR?i+1:-1; })
+				.filter(function(i){ return i !== -1; }),
+			c = indices.length,
+			buffer = new ArrayBuffer(c * 4 + 8),
+			view = new DataView(buffer);
+
+		//version & flags are zero
+		view.setUint32(4, c); // entry count
+
+		for(i=0, j=8; i < c; i++, j+=4){
+			view.setUint32(j, indices[i]);
+		}
+
+		return box('stss', buffer);
+	}
+
+	function ctts(track){
+		var i, j, c,
+			pd_diffs = [],
+			last_offset = 1/0,
+			current, buffer, view;
+
+		// Merge runs of equal offsets into a single entry
+		track.samples.forEach(function(s){
+			var offset = s.cts;
+			if(offset === last_offset){
+				current.sample_count++;
+			}else{
+				last_offset = offset;
+				current = {
+					sample_count: 1,
+					sample_offset: offset
+				};
+				pd_diffs.push(current);
+			}
+		});
+
+		c = pd_diffs.length;
+		if(c === 0){ return new ArrayBuffer(0); }
+
+		buffer = new ArrayBuffer(c * 8 + 8),
+		view = new DataView(buffer);
+
+		//version & flags are zero
+		view.setUint32(4, c); // entry count
+
+		for(i=0, j=8; i < c; i++, j+=8){
+			view.setUint32(j, pd_diffs[i].sample_count);
+			view.setUint32(j+4, pd_diffs[i].sample_offset);
+		}
+
+		return box('ctts', buffer);
+	}
+
+	function stbl(track){
+		var subboxes = [stsd, stts, stsc, stsz, stco];
+
+		if(track.type === 'video'){
+			subboxes.push(stss);
+			subboxes.push(ctts);
+		}
+
+		return box('stbl', subboxes.map(function(b){ return b(track); }));
+	}
+
+	function minf(track){
+		return box('minf',
+			(track.type === 'video'?vmhd:smhd)(),
+			dinf(), stbl(track)
+		);
+	}
+
+	function mdhd(track){
 		var buffer = new ArrayBuffer(24),
 			view = new DataView(buffer);
 
 		//version & flags = 0
 		// creation & modification time = 0
 		view.setUint32(12, 90000); // timescale
-		view.setUint32(16, trkdata.duration);
+		view.setUint32(16, track.duration);
 		view.setUint32(20, 0x55c40000); // 15-bit 'und' lang code & predefined = 0
 
 		return box('mdhd', buffer);
 	}
 
-	function mdia(trkdata){
-		return box('mdia', [mdhd(trkdata), hdlr(trkdata), minf(trkdata)]);
+	function mdia(track){
+		return box('mdia', mdhd(track), hdlr(track), minf(track));
 	}
 
-	function tkhd(trkdata, id){
-		var buffer = new ArrayBuffer(80),
+	function tkhd(track, id){
+		var buffer = new ArrayBuffer(84),
 			view = new DataView(buffer);
 
 		view.setUint32(0, 15); // version & flags
 		// creation & modification time = 0
 		view.setUint32(12, id);
-		view.setUint32(20, trkdata.duration || 0xffffffff);
+		view.setUint32(20, track.duration || 0xffffffff);
 		// reserved, layer(16) & alternate group(16)
 		// set volume at byte 32 later
 		// identity matrix:
 		view.setUint32(36, 0x01000000);
 		view.setUint32(52, 0x00010000);
-		view.setUint32(68, 0x40000000);
+		view.setUint32(72, 0x40000000);
 
-		if(trkdata.type === 'audio'){
+		if(track.type === 'audio'){
 			view.setUint32(32, 0x01000000); // volume & reserved bits
 		}else{
-			view.setUint32(72, (trkdata.width & 0xffff)<<16);  // 16.16 width, ignoring fractional part
-			view.setUint32(76, (trkdata.height & 0xffff)<<16); // 16.16 height, ignoring fractional part
+			view.setUint32(76, (track.width & 0xffff)<<16);  // 16.16 width, ignoring fractional part
+			view.setUint32(80, (track.height & 0xffff)<<16); // 16.16 height, ignoring fractional part
 		}
 
 		return box('tkhd', buffer);
 	}
 
-	function trak(trkdata, id){
-		return box('trak', [tkhd(trkdata), mdia(trkdata)]);
+	function trak(track, id){
+		return box('trak', tkhd(track, id), mdia(track));
 	}
 
 	function mvhd(tracks){
@@ -399,7 +486,7 @@ var MP4 = (function(){
 			view = new DataView(buffer);
 
 		d = Math.max.apply(Math,
-			tracks.map(function(trkdata){ return trkdata.duration; })
+			tracks.map(function(track){ return track.duration; })
 		);
 
 		// version & flags = 0
@@ -420,29 +507,24 @@ var MP4 = (function(){
 	}
 
 	function moov(tracks){
-		var subboxes = [mvhd(tracks)].concat(
-			tracks.map(function(trkdata, i){
-				return trak(trkdata, i+1);
-			})
-		);
-
+		var subboxes,
+			traks = tracks.map(function(track, i){
+				return trak(track, i+1);
+			});
+		
+		subboxes = [mvhd(tracks)].concat(traks);
 		return box('moov', subboxes);
 	}
 
 	function MP4File(tracks){
-		var offset = 40; // ftyp + mdat header
+		var offset = 36; // ftyp + mdat header
 
 		tracks.forEach(function(track){
 			track.byte_offset = offset;
 			offset += track.data.byteLength;
 		});
 
-		return new Blob(
-			ftyp().box
-			.concat(mdat(tracks).box)
-			.concat(moov(tracks).box),
-			{type: 'video/mp4'}
-		);
+		return merge(ftyp(), mdat(tracks), moov(tracks, false));
 	}
 
 	return {

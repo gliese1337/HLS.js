@@ -28,55 +28,6 @@ function parseNALStream(bytes){
 	return nalUnits;
 }
 
-// Replace 0-deltas with the mean frame rate in ticks/frame,
-// and merge runs of equal deltas into a single entry
-// Used in the stts box
-function mergeDeltas(deltas, frame_rate){
-	'use strict';
-	var last_delta = -1,
-		dts_diffs = [],
-		current;
-
-	deltas.forEach(function(delta){
-		if(delta !== last_delta){
-			current = {sample_count: 1, sample_delta: delta};
-			dts_diffs.push(current);
-			last_delta = delta;
-		}else{
-			current.sample_count++;
-		}
-	});
-	return dts_diffs;
-}
-
-// Calculate presentation-decoding time offsets,
-// and merge runs of equal offsets into a single entry
-// Used in the ctts box
-function calcPDDiffs(samples){
-	'use strict';
-	var current,
-		last_offset = 1/0,
-		pd_diffs = [];
-
-	samples.forEach(function(s, i){
-		var s_offset = s.pts - s.dts;
-		if(s_offset === last_offset){
-			current.sample_count++;
-		}else if(s_offset === 0){
-			last_offset = 1/0;
-		}else{
-			last_offset = s_offset;
-			current = {
-				first_chunk: i + 1,
-				sample_count: 1,
-				sample_offset: s_offset
-			};
-			pd_diffs.push(current);
-		}
-	});
-	return pd_diffs;
-}
-
 // Merge NAL Units from all packets into a single
 // continuous buffer, separated by 4-byte length headers
 function mergeNALUs(nalus,length){
@@ -99,7 +50,7 @@ function video_data(stream){
 		pps, sps, spsInfo, cropping,
 		dts_delta, size, isIDR,
 		samples = [], nalus = [],
-		sizes = [], dts_deltas = [],
+		dts_deltas = [],
 		packet = packets[0], offset = 0,
 		duration = 0, zeroes = 0,
 		frame_sum = 0, frame_count = 0,
@@ -126,16 +77,17 @@ function video_data(stream){
 			}
 		});
 
-		sizes.push(size);
+		dts_delta = next.dts - packet.dts;
 		samples.push({
 			offset: offset,
+			size: size,
 			pts: packet.pts,
 			dts: packet.dts,
+			cts: packet.pts - packet.dts,
+			duration: dts_delta,
 			isIDR: isIDR
 		});
 
-		dts_delta = next.dts - packet.dts;
-		dts_deltas.push(dts_delta);
 		if(dts_delta){
 			duration += dts_delta;
 			frame_sum += dts_delta;
@@ -161,11 +113,7 @@ function video_data(stream){
 				- (cropping.left + cropping.right) * 2,
 		height: (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
 				- (cropping.top + cropping.bottom) * 2,
-		sizes: sizes,
-		dts_diffs: mergeDeltas(dts_deltas, frame_rate),
-		access_indices: samples.map(function(s,i){ return s.isIDR?i+1:-1; })
-								.filter(function(i){ return i !== -1; }),
-		pd_diffs: calcPDDiffs(samples),
+		samples: samples,
 		duration: duration,
 		data: mergeNALUs(nalus, offset)
 	};
@@ -181,7 +129,7 @@ function audio_data(stream){
 	var audioSize = stream.byteLength,
 		audioBuffer = new Uint8Array(audioSize),
 		audioView = new DataView(audioBuffer.buffer),
-		sizes = [], maxAudioSize = 0, woffset = 0, roffset = 0,
+		samples = [], maxAudioSize = 0, woffset = 0, roffset = 0,
 		data_length, packet_length, header_length, 
 		duration, header, frames, freqIndex;
 
@@ -216,13 +164,13 @@ function audio_data(stream){
 
 		roffset += packet_length;
 		woffset += data_length;
-		sizes.push(data_length);
+		samples.push({size: data_length});
 		if(maxAudioSize < data_length){
 			maxAudioSize = data_length;
 		}
 	}
 
-	frames = sizes.length;
+	frames = samples.length;
 	freqIndex = (header >> 26) & 0xf;
 	duration = frames * 1024 / sampleRates[freqIndex];
 
@@ -234,11 +182,7 @@ function audio_data(stream){
 		maxAudioSize: maxAudioSize,
 		maxBitrate: Math.round(maxAudioSize / (duration / frames)),
 		avgBitrate: Math.round(woffset / duration),
-		sizes: sizes,
-		dts_diffs: [{
-			sample_count: frames,
-			sample_delta: Math.round(90000 * duration / frames)
-		}],
+		samples: samples,
 		duration: Math.round(90000 * duration),
 		data: audioBuffer.subarray(0,woffset)
 	};
@@ -246,15 +190,16 @@ function audio_data(stream){
 }
 
 addEventListener('message', function(event){
-	var msg = event.data,
+	var file, msg = event.data,
 		streams = msg.streams,
 		tracks = [];
 
 	if(streams[0xE0]){ tracks.push(video_data(streams[0xE0])); }
 	if(streams[0xC0]){ tracks.push(audio_data(streams[0xC0])); }
 
+	file = MP4.File(tracks);
 	postMessage({
 		index: msg.index,
-		url: URL.createObjectURL(MP4.File(tracks))
-	});
+		file: file.buffer
+	},[file.buffer]);
 });
