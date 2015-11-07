@@ -30,14 +30,21 @@ var fetchHLSManifests = (function(){
 		if(s.indexOf('"') !== -1){ throw new Error("Invalid Quoted String"); }
 		return s;
 	}
+
+	function stripQuotes(s){
+		return s.substr(1, s.length - 2);
+	}
+
 	function vaidateSignedFloat(s){
 		var f = parseFloat(s);
 		if(!isFinite(f)){ throw new Error("Invalid Float"); }
 		return f;
 	}
+
 	function validateHex(s){
 		return s;
 	}
+
 	function validateKeyFormats(s){
 		return s;
 	}
@@ -61,27 +68,25 @@ var fetchHLSManifests = (function(){
 					AUDIO: {},
 					VIDEO: {},
 					SUBTITLES: {},
-					'CLOSED-CAPTIONS': {},
-				},
+					'CLOSED-CAPTIONS': {}
+				}
 			};
 
-		//Clients SHOULD refuse to parse Playlists which contain a BOM
-		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
+		// Clients SHOULD refuse to parse Playlists which contain a BOM,
+		// but aren't required to. We'll be nice.
+		if(input[0] === '\uFEFF'){ input = input.substr(1); }
 		if(input.substr(0,7) !== "#EXTM3U"){ throw new Error("Missing EXTM3U tag."); }
 
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
-				parseTagMaster(match[3], settings, baseUrl);
+				parseMasterTag(match[3], settings, baseUrl);
 			}else{ //Gotta be a URI line
 				variants.push(createVariant(baseUrl, match[0], settings));
 			}
 		}
 
-		return {
-			settings: settings,
-			variants: variants
-		};
+		return variants;
 	}
 
 	function assert_master(settings){
@@ -90,21 +95,7 @@ var fetchHLSManifests = (function(){
 		}else{ settings.list_type = "master"; }
 	}
 
-	function assert_quotedString(str) {
-		var lastIndex = str.length - 1;
-		if(str[0] !== '"' || str[lastIndex] !== '"') {
-			var msg = "'URI' attribute of a media tag must"
-				+ " start and end with '\"'";
-			throw new Error(msg);
-		}
-	}
-
-	function stripQuotes(str) {
-		var lastIndex = str.length - 1;
-		return str.substr(1, lastIndex - 1);
-	}
-
-	function parseTagMaster(line, settings, baseUrl) {
+	function parseMasterTag(line, settings, baseUrl){
 		var match;
 
 		//Basic Tags
@@ -138,207 +129,207 @@ var fetchHLSManifests = (function(){
 
 		//Media or Master Playlist tags
 		match = /-X-INDEPENDENT-SEGMENTS/.exec(line);
-		if(match) {
+		if(match){
 			parseIndependentSegmentsTag(settings);
 		}
 		match = /-X-START:(.*)/.exec(line);
-		if(match) {
+		if(match){
 			parseStartTag(settings, parseAttributes(match[1]));
 		}
 
 	}
 
-	function parseMediaType(rendition, attrs) {
-		switch(attrs.TYPE) {
+	function parseMediaType(rendition, attrs){
+		switch(attrs.TYPE){
 		case void 0:
 			throw new Error("Media tag must have a 'TYPE' attribute.");
-			break;
 		case 'AUDIO':
-			rendition.type = 'audio';
-			break;
 		case 'VIDEO':
-			rendition.type = 'VIDEO'
-			break;
 		case 'SUBTITLES':
-			rendition.type = 'SUBTITLES';
-			break;
 		case 'CLOSED-CAPTIONS':
-			rendition.type = 'CLOSED-CAPTIONS';
+			rendition.type = attrs.TYPE;
 			break;
 		default:
-			var msg = "Invalid type attribute in media tag: '"
+			throw new Error(
+				"Invalid type attribute in media tag: '"
 				+ attrs.TYPE + "' Valid types are 'AUDIO', "
-				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'";
-			throw new Error(msg);
+				+ "'VIDEO', 'SUBTITLES', and 'CLOSED-CAPTIONS'"
+			);
 		}
 	}
 
-	function parseMediaUriAttr(rendition, attrs) {
-		if(typeof attrs.URI === 'undefined') {
-			if(typeof attrs.TYPE !== undefined) {
-				if(attrs.TYPE === 'SUBTITLES') {
-					var msg = "Media tags of type 'SUBTITLES' must have a 'URI' attribute.";
-					throw new Error(msg);
-				}
+	function parseMediaUriAttr(rendition, attrs){
+		if(attrs.URI === void 0){
+			if(attrs.TYPE === 'SUBTITLES'){
+				throw new Error("Media tags of type 'SUBTITLES' must have a 'URI' attribute.");
 			}
-		}
-		else {
-			assert_quotedString(attrs.URI);
-			if(attrs.TYPE) {
-				if(attrs.TYPE === 'CLOSED-CAPTIONS') {
-					var msg = "Media tags of type 'CLOSED-CAPTIONS' must not"
-						+ " have a 'URI' attribute.";
-					throw new Error(msg);
-				}
+		}else{
+			validateString(attrs.URI);
+			if(attrs.TYPE === 'CLOSED-CAPTIONS'){
+				throw new Error("Media tags of type 'CLOSED-CAPTIONS' must not have a 'URI' attribute.");
 			}
 			rendition.uri = stripQuotes(attrs.URI);
 		}
 	}
 
-	function parseMediaGroupId(attrs) {
-		if(typeof attrs['GROUP-ID'] === 'undefined') {
+	function parseMediaGroupId(attrs){
+		if(attrs['GROUP-ID'] === void 0){
 			throw new Error("Media tag must have a 'GROUP-ID' attribute.");
 		}
-		else {
-			assert_quotedString(attrs['GROUP-ID']);
-			console.log(attrs['GROUP-ID']);
-			return stripQuotes(attrs['GROUP-ID']);
-		}
+		validateString(attrs['GROUP-ID']);
+		return stripQuotes(attrs['GROUP-ID']);
 	}
 
-	function parseMediaLanguage(rendition, attrs) {
-		if(typeof attrs.LANGUAGE !== 'undefined') {
-			assert_quotedString(attrs.LANGUAGE);
-			rendition.language = stripQuotes(attrs.LANGUAGE);
-		}
+	function parseMediaLanguage(rendition, attrs){
+		if(attrs.LANGUAGE === void 0){ return; }
+		validateString(attrs.LANGUAGE);
+		rendition.language = stripQuotes(attrs.LANGUAGE);
 	}
 
-	function parseMediaAssocLanguage(rendition, attrs) {
-		if(typeof attrs['ASSOC-LANGUAGE'] !== 'undefined') {
-			rendition.assocLanguage = stripQuotes(attrs['ASSOC-LANGUAGE']);
-		}
+	function parseMediaAssocLanguage(rendition, attrs){
+		if(attrs['ASSOC-LANGUAGE'] === void 0){ return; }
+		validateString(attrs['ASSOC-LANGUAGE']);
+		rendition.assocLanguage = stripQuotes(attrs['ASSOC-LANGUAGE']);
 	}
 
-	function parseMediaName(attrs) {
-		if(typeof attrs.NAME === 'undefined') {
+	function parseMediaName(attrs){
+		if(attrs.NAME === void 0){
 			throw new Error("Media tag must have a 'NAME' attribute.");
-		} else {
-			assert_quotedString(attrs.NAME);
-			return stripQuotes(attrs.NAME);
 		}
+		validateString(attrs.NAME);
+		return stripQuotes(attrs.NAME);
 	}
 
-	function parseMediaDefault(rendition, attrs) {
-		switch(attrs.DEFAULT) {
-		case void 0, 'NO':
+	function parseMediaDefault(rendition, attrs){
+		switch(attrs.DEFAULT){
+		case void 0:
+		case 'NO':
 			rendition.default = false;
 			break;
 		case 'YES':
 			rendition.default = true;
 			break;
 		default:
-			var msg = "Attribute 'DEFAULT' of media tag must be 'YES'"
-				+ " or 'NO'. Value was '" + attrs.DEFAULT + "'.";
-			throw new Error(msg);
+			throw new Error(
+				"Invalid value for 'DEFAULT' attrbiute of media tag: '"
+				+ attrs.DEFAULT + "'. Valid values are 'YES' or 'NO'."
+			);
 		}
 	}
 
-	function parseMediaAutoSelect(rendition, attrs) {
-		switch(attrs.AUTOSELECT) {
-		case void 0, 'NO':
-			if(rendition.default) {
-				var msg = "Attribute 'AUTOSELECT' must have value 'YES'"
-					+ " if it exists and attribute 'DEFAULT' has a value"
-					+ " of 'YES'."
+	function parseMediaAutoSelect(rendition, attrs){
+		switch(attrs.AUTOSELECT){
+		case void 0:
+			rendition.autoSelect = rendition.default;
+		case 'NO':
+			if(rendition.default){
+				throw new Error(
+					"Attribute 'AUTOSELECT' of media tag must have value 'YES' "
+					+ "if it exists and attribute 'DEFAULT' has a value of 'YES'."
+				);
 			}
-			else {
-				rendition.autoSelect = false;
-			}
+			rendition.autoSelect = false;
 			break;
 		case 'YES':
 			rendition.autoSelect = true;
 			break;
 		default:
-			var msg = "Attribute 'AUTOSELECT' of media tag must be"
-				+ "'YES' or 'NO'. Value was '" + attrs.DEFAULT + "'.";
-			throw new Error(msg);
+			throw new Error(
+				"Invalid value for 'AUTOSELECT' attrbiute of media tag: '"
+				+ attrs.AUTOSELECT + "'. Valid values are 'YES' or 'NO'."
+			);
 		}
 	}
 
-	function parseMediaForced(rendition, attrs) {
-		if(attrs.TYPE === 'SUBTITLES') {
-			switch(attrs.FORCED) {
-			case void 0, 'NO':
+	function parseMediaForced(rendition, attrs){
+		if(attrs.TYPE === 'SUBTITLES'){
+			switch(attrs.FORCED){
+			case void 0:
+			case 'NO':
 				rendition.forced = false;
 				break;
 			case 'YES':
 				rendition.forced = true;
 				break;
 			default:
-				var msg = "Attribute 'FORCED' of media tag must be"
-					+ "'YES' or 'NO'. Value was '" + attrs.DEFAULT + "'.";
-				throw new Error(msg);
+				throw new Error(
+					"Invalid value for 'FORCED' attrbiute of media tag: '"
+					+ attrs.FORCED + "'. Valid values are 'YES' or 'NO'."
+				);
 			}
-		} else if(typeof attrs.FORCED !== 'undefined') {
-			var msg = "'FORCED' attribute of media tag may only"
+		}else if(attrs.FORCED !== void 0){
+			throw new Error(
+				"'FORCED' attribute of media tag may only"
 				+ " be present if 'TYPE' attribute has value of"
-				+ " 'SUBTITLES'.";
-			throw new Error(msg);
+				+ " 'SUBTITLES'."
+			);
 		}
 	}
 
-	function parseMediaInstreamId(rendition, attrs) {
-		if(attrs.TYPE === 'CLOSED-CAPTIONS') {
-			assert_quotedString(attrs['INSTREAM-ID']);
-			if(typeof attrs['INSTREAM-ID'] === 'undefined') {
-				var msg = "'INSTREAM-ID' attribute must be present"
+	function parseMediaInstreamId(rendition, attrs){
+		var L21Number, DTCCNumber, instream;
+
+		if(attrs.TYPE !== 'CLOSED-CAPTIONS'){
+			if(attrs['INSTREAM-ID'] !== void 0){
+				throw new Error(
+					"'INSTREAM-ID' attribute of media tag may only"
+					+ " be present if 'TYPE' attribute has value of"
+					+ " 'CLOSED-CAPTIONS'."
+				);
+			}
+		}else{
+
+			if(attrs['INSTREAM-ID'] === void 0){
+				throw new Error(
+					"'INSTREAM-ID' attribute must be present"
 					+ " in media tag when 'TYPE' attribute is"
-					+ " 'CLOSED-CAPTIONS'.";
-				throw new Error(msg);
+					+ " 'CLOSED-CAPTIONS'."
+				);
 			}
-			var L21RegExp = /"CC([1-4])"/;
-			var L21Number = L21RegExp.exec(attrs['INSTREAM-ID'])[1];
-			var DTCCRegExp = /"SERVICE([1-9]|[0-5]\d|6[0-3])"/;
-			var DTCCNumber = DTCCRegExp.exec(attrs['INSTREAM-ID'])[1];
-			var instream = {};
-			if(typeof L21Number !== 'undefined') {
+
+			validateString(attrs['INSTREAM-ID']);
+
+			instream = {};
+
+			L21Number = /"CC([1-4])"/.exec(attrs['INSTREAM-ID'])[1];
+			if(L21Number !== void 0){
 				instream.type = 'CC';
-				instream.channel = parseInt(L21Number);
+				instream.channel = parseInt(L21Number, 10);
 				rendition.instream = instream;
-			} else if(typeof DTCCNumber !== 'undefined') {
-				instream.type = 'SERVICE';
-				instream.blockNumber = DTCCNumber;
-				rendition.instream = instream;
-			} else {
-				var msg = "'INSTREAM-ID' attribute must be either"
-					+ " 'CC' followed by a number between 1 and 4,"
-					+ " or 'SERVICE' followed by a number between"
-					+ " 1 and 63.";
-				throw new Error(msg);
+				return;
 			}
-		} else if(typeof attrs['INSTREAM-ID'] !== 'undefined') {
-			var msg = "'INSTREAM-ID' attribute of media tag may only"
-				+ " be present if 'TYPE' attribute has value of"
-				+ " 'CLOSED-CAPTIONS'.";
-			throw new Error(msg);
+
+			DTCCNumber = /"SERVICE([1-9]|[0-5]\d|6[0-3])"/.exec(attrs['INSTREAM-ID'])[1];
+			if(DTCCNumber !== void 0){
+				instream.type = 'SERVICE';
+				instream.blockNumber = parseInt(DTCCNumber, 10);
+				rendition.instream = instream;
+				return;
+			}
+
+			throw new Error(
+				"'INSTREAM-ID' attribute must be either"
+				+ " 'CC' followed by a number between 1 and 4,"
+				+ " or 'SERVICE' followed by a number between"
+				+ " 1 and 63."
+			);
 		}
 	}
 
-	function parseMediaCharacteristics(rendition, attrs) {
-		if(typeof attrs.CHARACTERISTICS !== 'undefined') {
-			assert_quotedString(attrs.CHARACTERISTICS);
-			var quoteless = stripQuotes(attrs.CHARACTERISTICS);
-			var characteristics = quoteless.split(/,\s*/);
-			rendition.characteristics = characteristics;
-		}
+	function parseMediaCharacteristics(rendition, attrs){
+		if(attrs.CHARACTERISTICS === void 0){ return; }
+		validateString(attrs.CHARACTERISTICS);;
+		rendition.characteristics =
+			stripQuotes(attrs.CHARACTERISTICS)
+			.split(/,\s*/);
 	}
 
 	function parseMediaTag(settings, attrs){
 		assert_master(settings);
 
-		var rendition = {};
-		var name = parseMediaName(attrs);
-		var groupId = parseMediaGroupId(attrs);
+		var rendition = {},
+			name = parseMediaName(attrs),
+			groupId = parseMediaGroupId(attrs);
 
 		parseMediaType(rendition, attrs);
 		parseMediaUri(rendition, attrs);
@@ -349,105 +340,105 @@ var fetchHLSManifests = (function(){
 		parseMediaForced(rendition, attrs);
 		parseMediaInstreamId(rendition, attrs);
 		parseMediaCharacteristics(rendition, attrs);
-				
+
 		settings.groups[groupId] = settings.groups[groupId] || {};
 		settings.groups[groupId][name] = rendition;
 	}
 
-	function parseStreamInfBandwidth(settings, attrs) {
-		if(attrs.BANDWIDTH) {
-			settings.bandwidth = parseInt(attrs.BANDWIDTH);
+	function parseStreamInfBandwidth(settings, attrs){
+		if(attrs.BANDWIDTH === void 0){
+			throw new Error("StreamInf tag must have 'BANDWIDTH' attribute");
 		}
-		else {
-			var msg = "StreamInf tab must have"
-				+ " 'BANDWIDTH' attribute";
-			throw new Error(msg);
-		}
+		settings.bandwidth = parseInt(attrs.BANDWIDTH);
 	}
 
-	function parseStreamInfAverageBandwidth(settings, attrs) {
-		if(attrs['AVERAGE-BANDWIDTH']) {
-			settings.avgBandwidth = parseInt(attrs['AVERAGE-BANDWIDTH']);
-		}
+	function parseStreamInfAverageBandwidth(settings, attrs){
+		if(attrs['AVERAGE-BANDWIDTH'] === void 0){ return; }
+		settings.avgBandwidth = parseInt(attrs['AVERAGE-BANDWIDTH'], 10);
 	}
 
-	function parseStreamInfCodecs(settings, attrs) {
-		if(attrs.CODECS) {
-			assert_quotedString(attrs.CODECS);
-			var codecsStr = stripQuotes(attrs.CODECS);
-			settings.codecs = codecsStr.split(',');
-		}
+	function parseStreamInfCodecs(settings, attrs){
+		if(attrs.CODECS === void 0){ return; }
+		validateString(attrs.CODECS);
+		settings.codecs = stripQuotes(attrs.CODECS).split(',');
 	}
 
-	function parseStreamInfResolution(settings, attrs) {
-		if(attrs.RESOLUTION){
-			var resArr = attrs.RESOLUTION.split('x');
-			var resolution = {
-				width: resArr[0],
-				height: resArr[0],
-			}
-			settings.resolution = resolution;
-		}
+	function parseStreamInfResolution(settings, attrs){
+		if(attrs.RESOLUTION === void 0){ return; }
+
+		var resArr = attrs.RESOLUTION.split('x'); 
+		settings.resolution = {
+			width: parseInt(resArr[0].trim(), 10),
+			height: parseInt(resArr[1].trim(), 10)
+		};
 	}
 
-	function parseStreamInfAudio(settings, attrs) {
-		if(attrs.AUDIO) {
-			assert_quotedString(attrs.AUDIO);
-			var audioStr = stripQuotes(attrs.AUDIO);
-			var audio = settings.renditions[audioStr] || undefined;
-			if(!audio || audio.type !== 'AUDIO') {
-				var msg = "'AUDIO' attribute in streamInf tag"
+	function parseStreamInfAudio(settings, attrs){
+		if(attrs.AUDIO === void 0){ return; }
+		validateString(attrs.AUDIO);
+
+		var audioStr = stripQuotes(attrs.AUDIO),
+			audio = settings.renditions[audioStr];
+		if(!audio || audio.type !== 'AUDIO'){
+			throw new Error(
+				"'AUDIO' attribute in streamInf tag"
 				+ " must match the 'GROUP-ID' attribute of a"
-				+ " media tag of type 'AUDIO'";
-			} else {
-				settings.audio = audio;
-			}
+				+ " media tag of type 'AUDIO'"
+			);
 		}
+
+		settings.audio = audio;
 	}
 
-	function parseStreamInfVideo(settings, attrs) {
-		if(attrs.VIDEO) {
-			assert_quotedString(attrs.VIDEO);
-			var videoStr = stripQuotes(attrs.VIDEO);
-			var video = settings.renditions[videoStr] || undefined;
-			if(!video || video.type !== 'VIDEO') {
-				var msg = "'VIDEO' attribute in streamInf tag"
+	function parseStreamInfVideo(settings, attrs){
+		if(attrs.VIDEO === void 0){ return; }
+		validateString(attrs.VIDEO);
+
+		var videoStr = stripQuotes(attrs.VIDEO),
+			video = settings.renditions[videoStr];
+		if(!video || video.type !== 'VIDEO'){
+			throw new Error(
+				"'VIDEO' attribute in streamInf tag"
 				+ " must match the 'GROUP-ID' attribute of a"
-				+ " media tag of type 'VIDEO'";
-			} else {
-				settings.video = video;
-			}
+				+ " media tag of type 'VIDEO'"
+			);
 		}
+
+		settings.video = video;
 	}
 
-	function parseStreamInfSubtitles(settings, attrs) {
-		if(attrs.SUBTITLES) {
-			assert_quotedString(attrs.SUBTITLES);
-			var subtitlesStr = stripQuotes(attrs.SUBTITLES);
-			var subs = settings.renditions[subtitlesStr] || undefined;
-			if(!subs || subs.type !== 'SUBTITLES') {
-				var msg = "'SUBTITLES' attribute in streamInf tag"
+	function parseStreamInfSubtitles(settings, attrs){
+		if(attrs.SUBTITLES === void 0){ return; }
+		validateString(attrs.SUBTITLES);
+
+		var subtitlesStr = stripQuotes(attrs.SUBTITLES),
+			subs = settings.renditions[subtitlesStr];
+		if(!subs || subs.type !== 'SUBTITLES'){
+			throw new Error(
+				"'SUBTITLES' attribute in streamInf tag"
 				+ " must match the 'GROUP-ID' attribute of a"
-				+ " media tag of type 'SUBTITLES'";
-			} else {
-				settings.subtitles = subs;
-			}
+				+ " media tag of type 'SUBTITLES'"
+			);
 		}
+
+		settings.subtitles = subs;
 	}
 
-	function parseStreamInfClosedCaptions(settings, attrs) {
-		if(attrs['CLOSED-CAPTIONS']) {
-			assert_quotedString(attrs['CLOSED-CAPTIONS']);
-			var ccStr = stripQuotes(attrs['CLOSED-CAPTIONS']);
-			var cc = settings.renditions[ccStr] || undefined;
-			if(!cc || cc.type !== 'CLOSED-CAPTIONS') {
-				var msg = "'CLOSED-CAPTIONS' attribute in streamInf tag"
+	function parseStreamInfClosedCaptions(settings, attrs){
+		if(attrs['CLOSED-CAPTIONS'] === void 0){ return; }
+		validateString(attrs['CLOSED-CAPTIONS']);
+
+		var ccStr = stripQuotes(attrs['CLOSED-CAPTIONS']),
+			cc = settings.renditions[ccStr] || undefined;
+		if(!cc || cc.type !== 'CLOSED-CAPTIONS'){
+			throw new Error(
+				"'CLOSED-CAPTIONS' attribute in streamInf tag"
 				+ " must match the 'GROUP-ID' attribute of a"
-				+ " media tag of type 'CLOSED-CAPTIONS'.";
-			} else {
-				settings.closedCaptions = cc;
-			}
+				+ " media tag of type 'CLOSED-CAPTIONS'."
+			);
 		}
+
+		settings.closedCaptions = cc;
 	}
 
 	function parseStreamInfTag(settings, attrs){
@@ -477,25 +468,40 @@ var fetchHLSManifests = (function(){
 	}
 
 	function parseSessionDataTag(settings, attrs){
-		assert_quotedString(attrs['DATA-ID']);
-		var key = stripQuotes(attrs['DATA-ID']);
-		var value;
-		if(attrs['VALUE']) {
-			value = stripQuotes(attrs['VALUE']);
-		} else if(attrs['URI']) {
-			value = getJSONFromUrl(attrs['URI']);
+		var language, value, key;
+		if(attrs['DATA-ID'] === void 0){
+			throw new Error("Attribute 'DATA-ID' is required for Session Data tag.");
 		}
-		settings.session[key] = {};
-		settings.session[key].value = value;
-		if(attrs['LANGUAGE']) {
-			var language = parseLanguage(attrs.LANGUAGE);
-			settings.session[key].language = language;
+
+		validateString(attrs['DATA-ID']);
+		key = stripQuotes(attrs['DATA-ID']);
+
+		if(attrs.VALUE !== void 0){
+			validateString(attrs.VALUE);
+			value = stripQuotes(attrs.VALUE);
+			if(attrs['URI'] !== void 0){
+				throw new Error("Session Data tag must not contain both VALUE and URI attributes.");
+			}
+		}else if(attrs['URI'] !== void 0){
+			// Must point to JSON, but validating that require asynchrony
+			validateString(attrs.URI);
+			value = stripQuotes(attrs.URI);
 		}
+
+		if(attrs['LANGUAGE'] !== void 0){
+			validateString(attrs.LANGUAGE);
+			language = attrs.LANGUAGE;
+		}
+
+		settings.session[key] = {
+			value: value,
+			language: language
+		};
+
 	}
 
-	function createVariant(baseUrl, line, settings) {
-
-		var variant = {
+	function createVariant(baseUrl, line, settings){
+		return {
 			uri: resolveURL(baseUrl, line),
 			bandwidth: settings.bandwidth,
 			averageBandwidth: settings.avgBandwidth,
@@ -504,12 +510,10 @@ var fetchHLSManifests = (function(){
 			audio: settings.audio,
 			subtitles: settings.subtitles,
 			closedCaptions: settings.closedCaptions,
-		}
-
-		return variant;
+		};
 	}
 
-	function parse(baseUrl, input){
+	function parseMedia(baseUrl, input){
 		var match,
 			segments = [],
 			settings = {
@@ -552,8 +556,9 @@ var fetchHLSManifests = (function(){
 				startPrecise: "NO"
 			};
 
-		//Clients SHOULD refuse to parse Playlists which contain a BOM
-		if(input[0] === '\uFEFF'){ throw new Error("BOM detected"); }
+		// Clients SHOULD refuse to parse Playlists which contain a BOM,
+		// but aren't required to. We'll be nice.
+		if(input[0] === '\uFEFF'){ input = input.substr(1); }
 		if(input.substr(0,7) !== "#EXTM3U"){ throw new Error("Missing EXTM3U tag."); }
 		linePat.lastIndex = 7;
 		match = linePat.exec(input);
@@ -562,7 +567,7 @@ var fetchHLSManifests = (function(){
 		for(;match; match = linePat.exec(input)){
 			if(match[1]){
 				if(!match[2]){ continue; } //comment line
-				parseTag(match[3], settings, baseUrl);
+				parseMediaTag(match[3], settings, baseUrl);
 			}else{ //Gotta be a URI line
 				segments.push(createSegment(baseUrl, match[0], settings));
 			}
@@ -580,7 +585,7 @@ var fetchHLSManifests = (function(){
 		}else{ settings.list_type = "media"; }
 	}
 
-	function parseTag(line,settings,baseUrl){
+	function parseMediaTag(line,settings,baseUrl){
 		var match;
 		//Media Segment Tags
 		match = /INF:(\d+(\.\d+)?),.*/.exec(line);
@@ -972,61 +977,67 @@ var fetchHLSManifests = (function(){
 		});
 	}
 
-	function M3U8Manifest(text, url){
+	function M3U8Manifest(url, text){
 		this.url = url;
 		this.segments = [];
 		this.listeners = [];
 
-		this.refresh();
+		if(text){ this.update(text); }
+		else{ this.reload(); }
 	}
 
-	M3U8Manifest.prototype.refresh = function(){
-		var that = this, settings;
-		getManifest(this.url).then(function(text){
-			var obj = parse(that.url, text);
-			settings = obj.settings;
-			return obj.segments;
-		}).then(function(segments){
-			var waitFraction = 1000;
-			//TODO: compare with previous segment list
+	M3U8Manifest.prototype.update = function(text){
+		var that = this,
+			obj = parseMedia(this.url, text);
+
+		obj.segments.then(function(segments){
+			//var settings = obj.settings,
+			//	waitFraction = 1000;
+
+			// TODO: compare with previous segment list
 			// to generate diffs & determine the proper wait time
 			that.segments = segments;
 
-/*
-   The client MUST periodically reload the Media Playlist file unless it
-   contains the EXT-X-ENDLIST tag.
+			/*
+			   The client MUST periodically reload the Media Playlist file unless it
+			   contains the EXT-X-ENDLIST tag.
 
-   However the client MUST NOT attempt to reload the Playlist file more
-   frequently than specified by this section.
+			   However the client MUST NOT attempt to reload the Playlist file more
+			   frequently than specified by this section.
 
-   When a client loads a Playlist file for the first time or reloads a
-   Playlist file and finds that it has changed since the last time it
-   was loaded, the client MUST wait for at least the target duration
-   before attempting to reload the Playlist file again, measured from
-   the last time the client began loading the Playlist file.
+			   When a client loads a Playlist file for the first time or reloads a
+			   Playlist file and finds that it has changed since the last time it
+			   was loaded, the client MUST wait for at least the target duration
+			   before attempting to reload the Playlist file again, measured from
+			   the last time the client began loading the Playlist file.
 
-   If the client reloads a Playlist file and finds that it has not
-   changed then it MUST wait for a period of one-half the target
-   duration before retrying.
+			   If the client reloads a Playlist file and finds that it has not
+			   changed then it MUST wait for a period of one-half the target
+			   duration before retrying.
 
-   ...
-   
-   HOWEVER, "If the tag is present and has a value of VOD, the Playlist file MUST NOT change."
-   So there's really no point in reloading it in that case.
-*/
+			   ...
+			   
+			   HOWEVER, "If the tag is present and has a value of VOD, the Playlist file MUST NOT change."
+			   So there's really no point in reloading it in that case.
+			*/
 
-			//Turn this on once the player is updated to handle
-			//changes in the minfest
+			// Turn this on once the player is updated
+			// to handle changes in the manifest
 			/*if(settings.mutability !== "VOD" &&
 				!(settings.mutability === "EVENT" && settings.isFinished)){
 				setTimeout(
-					function(){ that.refresh(); },
+					function(){ that.reload(); },
 					settings.targetDuration*waitFraction
 				);
 			}*/
 
 			that.emit(segments);
 		});
+	};
+
+	M3U8Manifest.prototype.reload = function(){
+		var that = this;
+		getManifest(this.url).then(this.update.bind(this));
 	};
 
 	M3U8Manifest.prototype.emit = function(segments){
@@ -1048,18 +1059,17 @@ var fetchHLSManifests = (function(){
 		return !~text.indexOf('EXTINF');
 	}
 
-	function manifestsFromMaster(text, url){
-		return parseMaster(url, text).variants.map(function(variant){
-			var mediaUrl = variant.uri;
-			return new M3U8Manifest(getManifest(mediaUrl), mediaUrl);
+	function manifestsFromMaster(url, text){
+		return parseMaster(url, text).map(function(variant){
+			return new M3U8Manifest(variant.uri);
 		});
 	}
 
 	function fetchHLSManifests(url){
-		return getManifest(url).then(function(text) {
+		return getManifest(url).then(function(text){
 			return isMaster(text)?
-				manifestsFromMaster(text, url):
-				[new M3U8Manifest(text, url)];
+				manifestsFromMaster(url, text):
+				[new M3U8Manifest(url, text)];
 		});
 	}
 
