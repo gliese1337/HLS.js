@@ -524,7 +524,7 @@ var MP4 = (function(){
 			offset += track.data.byteLength;
 		});
 
-		return merge(ftyp(), mdat(tracks), moov(tracks, false));
+		return merge(ftyp(), mdat(tracks), moov(tracks));
 	}
 
 	return {
