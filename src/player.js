@@ -308,7 +308,6 @@ var HLSPlayer = (function(){
 		});
 	}
 
-
 	HLSPlayer.prototype.pause = function(){
 		var that = this;
 		if(this.paused){ return; }
