@@ -1,4 +1,4 @@
-function ExpGolomInit(view: DataView, bitoffset: number) {
+function ExpGolomInit(view: DataView, bitoffset: number): { zeros: number; skip: number; byt: number; byteoffset: number } {
   let bit = 0;
   let byteoffset = bitoffset>>3;
   let skip = bitoffset&7;
@@ -10,12 +10,12 @@ function ExpGolomInit(view: DataView, bitoffset: number) {
     byt <<= 1;
     zeros++;
     skip++;
-    if(skip === 8){
+    if (skip === 8) {
       skip = 0;
       byteoffset++;
       byt = view.getUint8(byteoffset);
     }
-  }while(!bit);
+  } while (!bit);
 
   return { zeros, skip, byt, byteoffset };
 }
@@ -24,19 +24,19 @@ class Bitstream {
   public bitoffset = 0;
 	constructor (public view: DataView) {}
 
-  ExpGolomb() {
+  ExpGolomb(): number {
     const { view } = this;
     let {
-      zeros, skip, byt, byteoffset
+      zeros, skip, byt, byteoffset,
     } = ExpGolomInit(view, this.bitoffset);
     
     let code = 1;
-    while(zeros > 0){
+    while (zeros > 0) {
       code = (code << 1)|((byt & 0x80) >>> 7);
       byt <<= 1;
       skip++;
       zeros--;
-      if(skip === 8){
+      if (skip === 8) {
         skip = 0;
         byteoffset++;
         byt = view.getUint8(byteoffset);
@@ -47,19 +47,19 @@ class Bitstream {
     return code - 1;
   }
 
-  SkipExpGolomb() {
+  SkipExpGolomb(): void {
     const {
-      zeros, skip, byteoffset
+      zeros, skip, byteoffset,
     } = ExpGolomInit(this.view, this.bitoffset);
     this.bitoffset = (byteoffset<<3)+skip+zeros;
   }
 
-  SignedExpGolomb() {
+  SignedExpGolomb(): number {
     const code = this.ExpGolomb();
     return code&1?(code+1)>>>1:-(code>>>1);
   }
 
-  readBit(): 0 | 1{
+  readBit(): 0 | 1 {
     const skip = this.bitoffset&7;
     const byteoffset = this.bitoffset>>3;
     this.bitoffset++;
@@ -67,15 +67,15 @@ class Bitstream {
   }
 }
 
-function scaling_list(stream: Bitstream, sizeOfScalingList: number){
+function scaling_list(stream: Bitstream, sizeOfScalingList: number): void {
   let lastScale = 8;
   let nextScale = 8;
-  for(let j = 0; j < sizeOfScalingList; j++){
-    if(nextScale !== 0){
+  for (let j = 0; j < sizeOfScalingList; j++) {
+    if (nextScale !== 0) {
       const deltaScale = stream.SignedExpGolomb();
       nextScale = (lastScale + deltaScale + 256) % 256;
     }
-    if(nextScale){ lastScale = nextScale; }
+    if (nextScale) { lastScale = nextScale; }
   }
 }
 
@@ -103,28 +103,28 @@ export function parseSPS(nal: Uint8Array): SPSInfo {
   const level_idc = nal[3];
   stream.SkipExpGolomb(); // seq_parameter_set_id
 
-  if(	profile_idc === 100 || profile_idc === 110 ||
+  if (	profile_idc === 100 || profile_idc === 110 ||
     profile_idc === 122 || profile_idc === 244 || profile_idc === 44 ||
     profile_idc === 83  || profile_idc === 86  || profile_idc === 118 ||
-    profile_idc === 128 ){
+    profile_idc === 128 ) {
     const chroma_format_idc = stream.ExpGolomb();
     let limit = 8;
-    if(chroma_format_idc === 3) {
+    if (chroma_format_idc === 3) {
       limit = 12;
       stream.bitoffset++; // separate color plane flag
     }
     stream.SkipExpGolomb(); // bit_depth_luma_minus8
     stream.SkipExpGolomb(); // bit_depth_chroma_minus8
     stream.bitoffset++; // qpprime_y_zero_transform_bypass_flag
-    if(stream.readBit()){ //seq_scaling_matrix_present_flag
+    if (stream.readBit()) { //seq_scaling_matrix_present_flag
       let i = 0;
-      for(; i < 6; i++){
-        if(stream.readBit()){ //seq_scaling_list_present_flag
+      for (; i < 6; i++) {
+        if (stream.readBit()) { //seq_scaling_list_present_flag
           scaling_list(stream, 16);
         }
       }
-      for(; i < limit; i++){
-        if(stream.readBit()){ //seq_scaling_list_present_flag
+      for (; i < limit; i++) {
+        if (stream.readBit()) { //seq_scaling_list_present_flag
           scaling_list(stream, 64);
         }
       }
@@ -133,14 +133,14 @@ export function parseSPS(nal: Uint8Array): SPSInfo {
 
   stream.SkipExpGolomb(); // log2_max_frame_num_minus4
   const pic_order_cnt_type = stream.ExpGolomb();
-  if(pic_order_cnt_type === 0){
+  if (pic_order_cnt_type === 0) {
     stream.ExpGolomb(); // log2_max_pic_order_cnt_lsb_minus4
-  }else if(pic_order_cnt_type === 1){
+  } else if (pic_order_cnt_type === 1) {
     stream.bitoffset++; // delta_pic_order_always_zero_flag
     stream.SkipExpGolomb(); // offset_for_non_ref_pic se(v)
     stream.SkipExpGolomb(); // offset_for_top_to_bottom_field se(v)
     const num_ref_frames_in_pic_order_cnt_cycle = stream.ExpGolomb();
-    for(let i = 0; i < num_ref_frames_in_pic_order_cnt_cycle; i++){
+    for (let i = 0; i < num_ref_frames_in_pic_order_cnt_cycle; i++) {
       stream.ExpGolomb(); // offset_for_ref_frame[i] se(v)
     }
   }
@@ -150,7 +150,7 @@ export function parseSPS(nal: Uint8Array): SPSInfo {
   const pic_width_in_mbs = stream.ExpGolomb() + 1;
   const pic_height_in_map_units = stream.ExpGolomb() + 1;
   const frame_mbs_only_flag = stream.readBit();
-  if(!frame_mbs_only_flag){
+  if (!frame_mbs_only_flag) {
     stream.bitoffset++; // mb_adaptive_frame_field_flag
   }
 
@@ -161,7 +161,7 @@ export function parseSPS(nal: Uint8Array): SPSInfo {
   let right_offset = 0;
   let top_offset = 0;
   let bottom_offset = 0;
-  if(frame_cropping_flag){
+  if (frame_cropping_flag) {
     left_offset = stream.ExpGolomb();
     right_offset = stream.ExpGolomb();
     top_offset = stream.ExpGolomb();
@@ -184,7 +184,7 @@ export function parseSPS(nal: Uint8Array): SPSInfo {
       left: left_offset,
       right: right_offset,
       top: top_offset,
-      bottom: bottom_offset
-    }
+      bottom: bottom_offset,
+    },
   };
 }

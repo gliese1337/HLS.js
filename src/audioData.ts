@@ -2,7 +2,7 @@ import { StreamData } from "./TSDemuxer";
 
 const sampleRates = [
   96000, 88200, 64000, 48000, 44100, 32000,
-  24000, 22050, 16000, 12000, 11025, 8000, 7350
+  24000, 22050, 16000, 12000, 11025, 8000, 7350,
 ];
 
 export type AudioSampleInfo = {
@@ -45,7 +45,7 @@ export function audio_data(stream: StreamData): AudioTrack {
   let maxAudioSize = 0;
 
   // Shift ADTS payloads in the buffer to eliminate intervening headers
-  for(woffset = 0; roffset < audioSize;){
+  for (woffset = 0; roffset < audioSize;) {
     const header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
     const packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
     const data_length = packet_length - header_length;
@@ -65,7 +65,7 @@ export function audio_data(stream: StreamData): AudioTrack {
     roffset += packet_length;
     woffset += data_length;
     samples.push({size: data_length});
-    if(maxAudioSize < data_length){
+    if (maxAudioSize < data_length) {
       maxAudioSize = data_length;
     }
   }
@@ -85,6 +85,6 @@ export function audio_data(stream: StreamData): AudioTrack {
     samples: samples,
     duration: Math.round(90000 * duration),
     byte_offset: 0,
-    data: audioBuffer.subarray(0,woffset)
+    data: audioBuffer.subarray(0, woffset),
   };
 }

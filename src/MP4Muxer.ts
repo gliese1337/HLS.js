@@ -22,7 +22,7 @@ export type Track = AudioTrack | VideoTrack;
 
 const boxtypes = new Map<string, number>();
 
-function toInt(s: string){
+function toInt(s: string): number {
   let n = 0;
   for (let i = 0, l = s.length; i < l; i++) {
     n = (n << 8) | s.charCodeAt(i);
@@ -35,13 +35,13 @@ type Box = {
   box: Uint8Array[];
 };
 
-function box(type: string, ...payload: (Box|Uint8Array)[]): Box{
+function box(type: string, ...payload: (Box|Uint8Array)[]): Box {
   let size = 8;
   const header = new Uint8Array(8);
   const view = new DataView(header.buffer);
   const box = [header];
 
-  if(!boxtypes.has(type)){
+  if (!boxtypes.has(type)) {
     boxtypes.set(type, toInt(type));
   }
 
@@ -57,7 +57,7 @@ function box(type: string, ...payload: (Box|Uint8Array)[]): Box{
   return { byteLength: size, box };
 }
 
-function merge(...boxes: Box[]){
+function merge(...boxes: Box[]): Uint8Array {
   const size = boxes.reduce((a, n) => a + n.byteLength, 0);
   const arr = new Uint8Array(size);
 
@@ -72,7 +72,7 @@ function merge(...boxes: Box[]){
   return arr;
 }
 
-function ftyp(){
+function ftyp(): Box {
   const buffer = new Uint8Array(20);
   const view = new DataView(buffer.buffer);
 
@@ -85,7 +85,7 @@ function ftyp(){
   return box('ftyp', buffer);
 }
 
-function mdat(tracks: Track[]) {
+function mdat(tracks: Track[]): Box {
   return box('mdat', ...tracks.map(track => track.data));
 }
 
@@ -112,15 +112,15 @@ function mdat(tracks: Track[]) {
             ctts
 **/
 
-function hdlr(track: Track){
+function hdlr(track: Track): Box {
   const buffer = new Uint8Array(37);
   const view = new DataView(buffer.buffer);
 
-  if(track.type==='video'){
+  if (track.type==='video') {
     view.setUint32(8, 0x76696465); // vide
     view.setUint32(24, 0x56696465); // 'Vide'
     view.setUint32(28, 0x6f48616e); // 'oHan'
-  }else{
+  } else {
     view.setUint32(8, 0x736f756e); // soun
     view.setUint32(24, 0x536f756e); // 'Soun'
     view.setUint32(28, 0x6448616e); // 'dHan'
@@ -131,7 +131,7 @@ function hdlr(track: Track){
   return box('hdlr', buffer);
 }
 
-function vmhd(){
+function vmhd(): Box {
   const buffer = new Uint8Array(12);
   const view = new DataView(buffer.buffer);
   view.setUint32(0, 1); // version & flags
@@ -139,12 +139,12 @@ function vmhd(){
   return box('vmhd', buffer);
 }
 
-function smhd(){
+function smhd(): Box {
   // version & flags, balance & reserved, all zeroes
   return box('smhd', new Uint8Array(8));
 }
 
-function dref(){
+function dref(): Box {
   const buffer = new Uint8Array(21);
   const view = new DataView(buffer.buffer);
 
@@ -159,11 +159,11 @@ function dref(){
   return box('dref', buffer);
 }
 
-function dinf(){
+function dinf(): Box {
   return box('dinf', dref());
 }
 
-function avcC(track: VideoTrack){
+function avcC(track: VideoTrack): Box {
   const { sps, pps, spsInfo } = track;
   const spslen = sps.byteLength;
   const ppslen = pps.byteLength;
@@ -178,20 +178,20 @@ function avcC(track: VideoTrack){
 
   view.setUint8(5, 0xe1); // 3 bits reserved + SPS count
   view.setUint16(6, spslen);
-  for(let i = 0, j = 8; i < spslen; i++, j++){
+  for (let i = 0, j = 8; i < spslen; i++, j++) {
     view.setUint8(j, sps[i]);
   }
 
   view.setUint8(8+spslen, 1); // PPS count
   view.setUint16(9+spslen, ppslen);
-  for(let i = 0, j = 11+spslen; i < ppslen; i++, j++){
+  for (let i = 0, j = 11+spslen; i < ppslen; i++, j++) {
     view.setUint8(j, pps[i]);
   }
 
   return box('avcC', buffer);
 }
 
-function avc1(track: VideoTrack){
+function avc1(track: VideoTrack): Box {
   const buffer = new Uint8Array(78);
   const view = new DataView(buffer.buffer);
 
@@ -212,7 +212,7 @@ function avc1(track: VideoTrack){
   return box('avc1', buffer, avcC(track));
 }
 
-function esds(track: AudioTrack){
+function esds(track: AudioTrack): Box {
   const buffer = new Uint8Array(43);
   const view = new DataView(buffer.buffer);
   const freqIndex = track.samplingFreqIndex;
@@ -246,18 +246,18 @@ function esds(track: AudioTrack){
   return box('esds', buffer);
 }
 
-function channelCount(conf: number){
-  if(conf < 2){ return 1; } // 0 is AOT specific
-  if(conf < 7){ return conf; }
+function channelCount(conf: number): number {
+  if (conf < 2) { return 1; } // 0 is AOT specific
+  if (conf < 7) { return conf; }
   return 8;
 }
 
 const sampleRates = [
   96000, 88200, 64000, 48000, 44100, 32000,
-  24000, 22050, 16000, 12000, 11025, 8000, 7350
+  24000, 22050, 16000, 12000, 11025, 8000, 7350,
 ];
 
-function mp4a(track: AudioTrack){
+function mp4a(track: AudioTrack): Box {
   const buffer = new Uint8Array(28);
   const view = new DataView(buffer.buffer);
 
@@ -274,7 +274,7 @@ function mp4a(track: AudioTrack){
   return box('mp4a', buffer, esds(track));
 }
 
-function stsd(track: Track){
+function stsd(track: Track): Box {
   const buffer = new Uint8Array(8);
   const view = new DataView(buffer.buffer);
 
@@ -285,18 +285,18 @@ function stsd(track: Track){
   );
 }
 
-function stts(track: VideoTrack){
+function stts(track: VideoTrack): Box {
   // merge runs of identical deltas
   const dts_diffs = [];
   let current = { sample_count: 0, sample_delta: 0 };
   let last_delta = -1;
   for (const sample of track.samples) {
     const delta = sample.duration;
-    if(delta !== last_delta){
+    if (delta !== last_delta) {
       current = {sample_count: 1, sample_delta: delta};
       dts_diffs.push(current);
       last_delta = delta;
-    }else{
+    } else {
       current.sample_count++;
     }
   }
@@ -308,7 +308,7 @@ function stts(track: VideoTrack){
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for(let i=0, j=8; i < c; i++, j+=8){
+  for (let i=0, j=8; i < c; i++, j+=8) {
     view.setUint32(j, dts_diffs[i].sample_count);
     view.setUint32(j+4, dts_diffs[i].sample_delta);
   }
@@ -316,7 +316,7 @@ function stts(track: VideoTrack){
   return box('stts', buffer);
 }
 
-function stsz(track: Track){
+function stsz(track: Track): Box {
   const { samples } = track;
   const c = samples.length;
   const buffer = new Uint8Array(c * 4 + 12);
@@ -326,14 +326,14 @@ function stsz(track: Track){
   //sample_size(32) = 0
   view.setUint32(8, c); // sample count
 
-  for(let i=0, j=12; i < c; i++, j+=4){
+  for (let i=0, j=12; i < c; i++, j+=4) {
     view.setUint32(j, samples[i].size);
   }
 
   return box('stsz', buffer);
 }
 
-function stsc(track: Track){
+function stsc(track: Track): Box {
   const buffer = new Uint8Array(20);
   const view = new DataView(buffer.buffer);
 
@@ -346,7 +346,7 @@ function stsc(track: Track){
   return box('stsc', buffer);
 }
 
-function stco(track: Track){
+function stco(track: Track): Box {
   const buffer = new Uint8Array(12);
   const view = new DataView(buffer.buffer);
 
@@ -357,9 +357,9 @@ function stco(track: Track){
   return box('stco', buffer);
 }
 
-function stss(track: VideoTrack){
+function stss(track: VideoTrack): Box {
   const indices = track.samples
-      .map((s,i) => s.isIDR?i+1:-1)
+      .map((s, i) => s.isIDR?i+1:-1)
       .filter(i => i !== -1);
   const c = indices.length;
   const buffer = new Uint8Array(c * 4 + 8);
@@ -368,14 +368,14 @@ function stss(track: VideoTrack){
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for(let i=0, j=8; i < c; i++, j+=4){
+  for (let i=0, j=8; i < c; i++, j+=4) {
     view.setUint32(j, indices[i]);
   }
 
   return box('stss', buffer);
 }
 
-function ctts(track: VideoTrack){
+function ctts(track: VideoTrack): Box | Uint8Array {
   const pd_diffs = [];
   let last_offset = -1;
   let current = {
@@ -386,7 +386,7 @@ function ctts(track: VideoTrack){
   // Merge runs of equal offsets into a single entry
   for (const s of track.samples) {
     const offset = s.cts;
-    if(offset === last_offset){
+    if (offset === last_offset) {
       current.sample_count++;
     } else {
       last_offset = offset;
@@ -399,7 +399,7 @@ function ctts(track: VideoTrack){
   }
 
   const c = pd_diffs.length;
-  if(c === 0){ return new Uint8Array(0); }
+  if (c === 0) { return new Uint8Array(0); }
 
   const buffer = new Uint8Array(c * 8 + 8);
   const view = new DataView(buffer.buffer);
@@ -407,7 +407,7 @@ function ctts(track: VideoTrack){
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for(let i=0, j=8; i < c; i++, j+=8){
+  for (let i=0, j=8; i < c; i++, j+=8) {
     view.setUint32(j, pd_diffs[i].sample_count);
     view.setUint32(j+4, pd_diffs[i].sample_offset);
   }
@@ -415,11 +415,12 @@ function ctts(track: VideoTrack){
   return box('ctts', buffer);
 }
 
-function stbl(track: Track){
+function stbl(track: Track): Box {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const subboxes: ((t: any) => (Box|Uint8Array))[] =
     [stsd, stts, stsc, stsz, stco];
 
-  if(track.type === 'video'){
+  if (track.type === 'video') {
     subboxes.push(stss);
     subboxes.push(ctts);
   }
@@ -427,14 +428,14 @@ function stbl(track: Track){
   return box('stbl', ...subboxes.map(b => b(track)));
 }
 
-function minf(track: Track){
+function minf(track: Track): Box {
   return box('minf',
     (track.type === 'video'?vmhd:smhd)(),
     dinf(), stbl(track)
   );
 }
 
-function mdhd(track: Track){
+function mdhd(track: Track): Box {
   const buffer = new Uint8Array(24);
   const view = new DataView(buffer.buffer);
 
@@ -447,11 +448,11 @@ function mdhd(track: Track){
   return box('mdhd', buffer);
 }
 
-function mdia(track: Track){
+function mdia(track: Track): Box {
   return box('mdia', mdhd(track), hdlr(track), minf(track));
 }
 
-function tkhd(track: Track, id: number){
+function tkhd(track: Track, id: number): Box {
   const buffer = new Uint8Array(84);
   const view = new DataView(buffer.buffer);
 
@@ -466,9 +467,9 @@ function tkhd(track: Track, id: number){
   view.setUint32(52, 0x00010000);
   view.setUint32(72, 0x40000000);
 
-  if(track.type === 'audio'){
+  if (track.type === 'audio') {
     view.setUint32(32, 0x01000000); // volume & reserved bits
-  }else{
+  } else {
     view.setUint32(76, (track.width & 0xffff)<<16);  // 16.16 width, ignoring fractional part
     view.setUint32(80, (track.height & 0xffff)<<16); // 16.16 height, ignoring fractional part
   }
@@ -476,17 +477,14 @@ function tkhd(track: Track, id: number){
   return box('tkhd', buffer);
 }
 
-function trak(track: Track, id: number){
+function trak(track: Track, id: number): Box {
   return box('trak', tkhd(track, id), mdia(track));
 }
 
-function mvhd(tracks: Track[]){
+function mvhd(tracks: Track[]): Box {
   const buffer = new Uint8Array(100);
   const view = new DataView(buffer.buffer);
-
-  const d = Math.max.apply(Math,
-    tracks.map(track => track.duration)
-  );
+  const d = Math.max(...tracks.map(track => track.duration));
 
   // version & flags = 0
   // creation & modification time = 0
@@ -505,11 +503,11 @@ function mvhd(tracks: Track[]){
   return box('mvhd', buffer);
 }
 
-function moov(tracks: Track[]){
+function moov(tracks: Track[]): Box {
   return box('moov', mvhd(tracks), ...tracks.map((track, i) => trak(track, i+1)));
 }
 
-export function MP4File(tracks: Track[]){
+export function MP4File(tracks: Track[]): Uint8Array {
   let offset = 36; // ftyp + mdat header
   for (const track of tracks) {
     track.byte_offset = offset;
