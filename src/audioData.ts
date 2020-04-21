@@ -1,3 +1,5 @@
+import { StreamData } from "./TSDemuxer";
+
 const sampleRates = [
   96000, 88200, 64000, 48000, 44100, 32000,
   24000, 22050, 16000, 12000, 11025, 8000, 7350
@@ -21,7 +23,7 @@ export type AudioTrack = {
   data: Uint8Array;
 };
 
-export function audio_data(stream: { byteLength: number; packets: any[]; }){
+export function audio_data(stream: StreamData): AudioTrack {
   const audioSize = stream.byteLength;
   const audioBuffer = new Uint8Array(audioSize);
   const audioView = new DataView(audioBuffer.buffer);

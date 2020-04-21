@@ -18,7 +18,7 @@
 import { VideoTrack } from './videoData';
 import { AudioTrack } from './audioData';
 
-type Track = AudioTrack | VideoTrack;
+export type Track = AudioTrack | VideoTrack;
 
 const boxtypes = new Map<string, number>();
 
@@ -38,7 +38,7 @@ type Box = {
 function box(type: string, ...payload: (Box|Uint8Array)[]): Box{
   let size = 8;
   const header = new Uint8Array(8);
-  const view = new DataView(header);
+  const view = new DataView(header.buffer);
   const box = [header];
 
   if(!boxtypes.has(type)){
@@ -52,7 +52,7 @@ function box(type: string, ...payload: (Box|Uint8Array)[]): Box{
   }
 
   view.setUint32(0, size);
-  view.setUint32(4, boxtypes.get(type));
+  view.setUint32(4, boxtypes.get(type) as number);
 
   return { byteLength: size, box };
 }
@@ -288,7 +288,7 @@ function stsd(track: Track){
 function stts(track: VideoTrack){
   // merge runs of identical deltas
   const dts_diffs = [];
-  let current: {sample_count: number, sample_delta: number};
+  let current = { sample_count: 0, sample_delta: 0 };
   let last_delta = -1;
   for (const sample of track.samples) {
     const delta = sample.duration;
@@ -348,7 +348,7 @@ function stsc(track: Track){
 
 function stco(track: Track){
   const buffer = new Uint8Array(12);
-  const view = new DataView(buffer);
+  const view = new DataView(buffer.buffer);
 
   //version & flags are zero
   view.setUint32(4, 1); // entry count
@@ -378,21 +378,21 @@ function stss(track: VideoTrack){
 function ctts(track: VideoTrack){
   const pd_diffs = [];
   let last_offset = -1;
-  let current: {
-    sample_count: number;
-    sample_offset: number;
-  };
+  let current = {
+    sample_count: 1,
+    sample_offset: 0,
+  }
 
   // Merge runs of equal offsets into a single entry
   for (const s of track.samples) {
     const offset = s.cts;
     if(offset === last_offset){
       current.sample_count++;
-    }else{
+    } else {
       last_offset = offset;
       current = {
         sample_count: 1,
-        sample_offset: offset
+        sample_offset: offset,
       };
       pd_diffs.push(current);
     }

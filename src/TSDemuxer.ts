@@ -2,7 +2,7 @@
  * https://github.com/clark15b/tsdemuxer/blob/67a20b47dd4a11282134ee61d390cc64d1083e61/v1.0/tsdemux.cpp
  */
 
-const errcodes = [
+export const ErrCodes = [
   "Error 1: Incomplete TS Packet",
   "Error 2: Invalid Sync Byte",
   "Error 3: Transport Error",
@@ -53,7 +53,7 @@ type Payload = {
   frame_ticks: number;
 };
 
-type Packet = {
+export type Packet = {
   data: Uint8Array;
   pts: number;
   dts: number;
@@ -140,7 +140,7 @@ class PMT {
 
 function get_stream(pids: Map<number, Stream>, pid: number) {
   if(!pids.has(pid)){ pids.set(pid, new Stream()); }
-  return pids.get(pid);
+  return pids.get(pid) as Stream;
 }
 
 function get_stream_type(type_id: number) {
@@ -184,7 +184,7 @@ function decode_ts(mem: DataView, p: number) {
          ((mem.getUint8(p+4)&0xfe)>> 1);
 }
 
-function decode_pat(mem, ptr, len, pids, pstart){
+function decode_pat(mem: DataView, ptr: number, len: number, pids: Map<number, Stream>, pstart: number){
   var s, i, n, l, pid, program;
   if(pstart){
     if(len<1){ return 6; }
@@ -434,12 +434,12 @@ function demux_packet(pmt: PMT, mem: DataView, ptr: number, len: number, pids: M
   return decode_pes(mem, ptr, len, s, payload_start);
 }
 
-function demux_file(pmt: PMT, buffer: ArrayBuffer, ptr: number, len: number, pids: Map<number, Stream>){
+function demux_file(pmt: PMT, buffer: Uint8Array, ptr: number, len: number, pids: Map<number, Stream>){
   const l=188;
-  const mem = new DataView(buffer);
+  const mem = new DataView(buffer.buffer);
 
   for(ptr=0;;ptr+=l){
-    length = len - ptr;
+    const length = len - ptr;
     if(!length){ return 0; }
     if(length<l){ return 1; } // incompleted TS packet
 
@@ -448,7 +448,7 @@ function demux_file(pmt: PMT, buffer: ArrayBuffer, ptr: number, len: number, pid
   }
 }
 
-type StreamData = {
+export type StreamData = {
   type: number;
   packets: Packet[];
   byteLength: number;
@@ -457,7 +457,6 @@ type StreamData = {
 
 function pids2streams(pids: Map<number, Stream>){
   const streams = new Map<number, StreamData>();
-  const buffers: ArrayBuffer[] = [];
   for (const s of pids.values()) {
     s.finalize();
     if(s.byteLength === 0) continue;
@@ -467,22 +466,17 @@ function pids2streams(pids: Map<number, Stream>){
       byteLength: s.byteLength,
       length: s.length
     });
-
-    for (const p of s.packets) {
-      if(buffers.indexOf(p.data.buffer) > -1){ return; }
-      buffers.push(p.data.buffer);
-    }
   }
 
-  return { streams, buffers };
+  return streams;
 }
 
 export class TSDemuxer {
   private pmt = new PMT();
 
-  process(buffer: Uint8Array, offset = 0, len = buffer.byteLength) {
+  process(buffer: Uint8Array, offset = 0, len = buffer.byteLength): [0, Map<number, StreamData>] | [number, null] {
 		const pids = new Map<number, Stream>();
 		const n = demux_file(this.pmt, buffer, offset, len, pids);
-    return [n, n === 0 ? pids2streams(pids) : null];
+    return [n, n === 0 ? pids2streams(pids) : null] as [number, null];
   }
 }

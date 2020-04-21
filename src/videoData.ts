@@ -1,4 +1,5 @@
 import { parseSPS, SPSInfo } from './SPSParser';
+import { StreamData, Packet } from './TSDemuxer';
 
 /* Video Helper Functions */
 
@@ -62,9 +63,9 @@ export type VideoTrack = {
   data: Uint8Array;
 };
 
-export function video_data({ packets }) {
-  let pps: Uint8Array;
-  let sps: Uint8Array;
+export function video_data({ packets }: StreamData): VideoTrack {
+  let pps: Uint8Array = null as unknown as Uint8Array;
+  let sps: Uint8Array = null as unknown as Uint8Array;
 
   const samples = [];
   const nalus = [];
@@ -76,7 +77,7 @@ export function video_data({ packets }) {
   let offset = 0;
   let packet = packets[0]
   for(let i = 1, len = packets.length; i <= len; i++) {
-    const next = packets[i] || { offset, dts: packet.dts };
+    const next: Packet = packets[i] || { dts: packet.dts, pts: 0, frame_ticks: 0, data: null };
     let size = 0;
     let isIDR = false;
 
