@@ -11,11 +11,11 @@ function * parseNALStream(bytes: Uint8Array): Generator<Uint8Array> {
   let end = 1;
   do {
     // Check # of sync bytes (0x000001 or 0x00000001)
-    end += view.getUint16(end+1)?3:4;
+    end += view.getUint16(end + 1) ? 3 : 4;
     for (start = end; end < len; end++) {
       // Step forward until we hit another 3- or 4-byte header
       if (view.getUint16(end) === 0 &&
-        (bytes[end+2] === 1 || (view.getUint16(end+2) === 1))) {
+        (bytes[end + 2] === 1 || (view.getUint16(end + 2) === 1))) {
         yield bytes.subarray(start, end);
         break;
       }
@@ -34,7 +34,7 @@ function mergeNALUs(nalus: Uint8Array[], length: number): Uint8Array {
   for (let i = 0, offset = 0; offset < length; i++) {
     const unit = nalus[i];
     view.setUint32(offset, unit.byteLength);
-    arr.set(unit, offset+4);
+    arr.set(unit, offset + 4);
     offset += unit.byteLength + 4;
   }
   return arr;
@@ -92,7 +92,7 @@ export function video_data({ packets }: StreamData): VideoTrack {
         case 5:
           isIDR = true;
         default: // eslint-disable-line no-fallthrough
-          size += nalUnit.length+4;
+          size += nalUnit.length + 4;
           nalus.push(nalUnit);
       }
     }

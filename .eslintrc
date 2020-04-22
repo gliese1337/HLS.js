@@ -21,6 +21,8 @@
     "space-before-blocks": ["error", "always"],
     "arrow-spacing": ["error", { "before": true, "after": true }],
     "no-lonely-if": "error",
-    "curly": ["error", "multi-line"]
+    "curly": ["error", "multi-line"],
+    "space-infix-ops": ["error", { "int32Hint": true }],
+    "prefer-const": "error"
   }
 }

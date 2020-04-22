@@ -116,7 +116,7 @@ function hdlr(track: Track): Box {
   const buffer = new Uint8Array(37);
   const view = new DataView(buffer.buffer);
 
-  if (track.type==='video') {
+  if (track.type === 'video') {
     view.setUint32(8, 0x76696465); // vide
     view.setUint32(24, 0x56696465); // 'Vide'
     view.setUint32(28, 0x6f48616e); // 'oHan'
@@ -182,9 +182,9 @@ function avcC(track: VideoTrack): Box {
     view.setUint8(j, sps[i]);
   }
 
-  view.setUint8(8+spslen, 1); // PPS count
-  view.setUint16(9+spslen, ppslen);
-  for (let i = 0, j = 11+spslen; i < ppslen; i++, j++) {
+  view.setUint8(8 + spslen, 1); // PPS count
+  view.setUint16(9 + spslen, ppslen);
+  for (let i = 0, j = 11 + spslen; i < ppslen; i++, j++) {
     view.setUint8(j, pps[i]);
   }
 
@@ -237,7 +237,7 @@ function esds(track: AudioTrack): Box {
   // DecoderSpecificInfo
   view.setUint32(30, 0x05808080); // DecSpecificInfoTag
   view.setUint8(34, 2); // length
-  view.setUint16(35, (objectType<<11)|(freqIndex<<7)|(channelConf<<3));
+  view.setUint16(35, (objectType << 11) | (freqIndex << 7) | (channelConf << 3));
 
   // SLConfigDescriptor
   view.setUint32(37, 0x06808080); //SLConfigDescrTag
@@ -268,7 +268,7 @@ function mp4a(track: AudioTrack): Box {
   view.setUint16(16, channelCount(track.channelConfig));
   view.setUint16(18, 16); // sample size
   // 4 bytes reserved
-  view.setUint32(24, sampleRates[track.samplingFreqIndex]<<16);
+  view.setUint32(24, sampleRates[track.samplingFreqIndex] << 16);
 
   // mp4a extends AudioSampleEntry with ESDBox
   return box('mp4a', buffer, esds(track));
@@ -281,7 +281,7 @@ function stsd(track: Track): Box {
   view.setUint32(4, 1); // entry count
 
   return box('stsd', buffer,
-    track.type === 'video'?avc1(track):mp4a(track)
+    track.type === 'video' ? avc1(track) : mp4a(track)
   );
 }
 
@@ -308,9 +308,9 @@ function stts(track: VideoTrack): Box {
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for (let i=0, j=8; i < c; i++, j+=8) {
+  for (let i = 0, j = 8; i < c; i++, j += 8) {
     view.setUint32(j, dts_diffs[i].sample_count);
-    view.setUint32(j+4, dts_diffs[i].sample_delta);
+    view.setUint32(j + 4, dts_diffs[i].sample_delta);
   }
 
   return box('stts', buffer);
@@ -326,7 +326,7 @@ function stsz(track: Track): Box {
   //sample_size(32) = 0
   view.setUint32(8, c); // sample count
 
-  for (let i=0, j=12; i < c; i++, j+=4) {
+  for (let i = 0, j = 12; i < c; i++, j += 4) {
     view.setUint32(j, samples[i].size);
   }
 
@@ -359,7 +359,7 @@ function stco(track: Track): Box {
 
 function stss(track: VideoTrack): Box {
   const indices = track.samples
-      .map((s, i) => s.isIDR?i+1:-1)
+      .map((s, i) => s.isIDR ? i + 1 : -1)
       .filter(i => i !== -1);
   const c = indices.length;
   const buffer = new Uint8Array(c * 4 + 8);
@@ -368,7 +368,7 @@ function stss(track: VideoTrack): Box {
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for (let i=0, j=8; i < c; i++, j+=4) {
+  for (let i = 0, j = 8; i < c; i++, j += 4) {
     view.setUint32(j, indices[i]);
   }
 
@@ -407,9 +407,9 @@ function ctts(track: VideoTrack): Box | Uint8Array {
   //version & flags are zero
   view.setUint32(4, c); // entry count
 
-  for (let i=0, j=8; i < c; i++, j+=8) {
+  for (let i = 0, j = 8; i < c; i++, j += 8) {
     view.setUint32(j, pd_diffs[i].sample_count);
-    view.setUint32(j+4, pd_diffs[i].sample_offset);
+    view.setUint32(j + 4, pd_diffs[i].sample_offset);
   }
 
   return box('ctts', buffer);
@@ -430,7 +430,7 @@ function stbl(track: Track): Box {
 
 function minf(track: Track): Box {
   return box('minf',
-    (track.type === 'video'?vmhd:smhd)(),
+    (track.type === 'video' ? vmhd : smhd)(),
     dinf(), stbl(track)
   );
 }
@@ -470,8 +470,8 @@ function tkhd(track: Track, id: number): Box {
   if (track.type === 'audio') {
     view.setUint32(32, 0x01000000); // volume & reserved bits
   } else {
-    view.setUint32(76, (track.width & 0xffff)<<16);  // 16.16 width, ignoring fractional part
-    view.setUint32(80, (track.height & 0xffff)<<16); // 16.16 height, ignoring fractional part
+    view.setUint32(76, (track.width & 0xffff) << 16);  // 16.16 width, ignoring fractional part
+    view.setUint32(80, (track.height & 0xffff) << 16); // 16.16 height, ignoring fractional part
   }
 
   return box('tkhd', buffer);
@@ -504,7 +504,7 @@ function mvhd(tracks: Track[]): Box {
 }
 
 function moov(tracks: Track[]): Box {
-  return box('moov', mvhd(tracks), ...tracks.map((track, i) => trak(track, i+1)));
+  return box('moov', mvhd(tracks), ...tracks.map((track, i) => trak(track, i + 1)));
 }
 
 export function MP4File(tracks: Track[]): Uint8Array {

@@ -1,7 +1,7 @@
 function ExpGolomInit(view: DataView, bitoffset: number): { zeros: number; skip: number; byt: number; byteoffset: number } {
   let bit = 0;
-  let byteoffset = bitoffset>>3;
-  let skip = bitoffset&7;
+  let byteoffset = bitoffset >> 3;
+  let skip = bitoffset & 7;
   let zeros = -1;
 
   let byt = view.getUint8(byteoffset) << skip;
@@ -32,7 +32,7 @@ class Bitstream {
     
     let code = 1;
     while (zeros > 0) {
-      code = (code << 1)|((byt & 0x80) >>> 7);
+      code = (code << 1) | ((byt & 0x80) >>> 7);
       byt <<= 1;
       skip++;
       zeros--;
@@ -43,7 +43,7 @@ class Bitstream {
       }
     }
     
-    this.bitoffset = (byteoffset<<3)|skip;
+    this.bitoffset = (byteoffset << 3) | skip;
     return code - 1;
   }
 
@@ -51,19 +51,19 @@ class Bitstream {
     const {
       zeros, skip, byteoffset,
     } = ExpGolomInit(this.view, this.bitoffset);
-    this.bitoffset = (byteoffset<<3)+skip+zeros;
+    this.bitoffset = (byteoffset << 3) + skip + zeros;
   }
 
   SignedExpGolomb(): number {
     const code = this.ExpGolomb();
-    return code&1?(code+1)>>>1:-(code>>>1);
+    return code & 1 ? (code + 1) >>> 1 : -(code >>> 1);
   }
 
   readBit(): 0 | 1 {
-    const skip = this.bitoffset&7;
-    const byteoffset = this.bitoffset>>3;
+    const skip = this.bitoffset & 7;
+    const byteoffset = this.bitoffset >> 3;
     this.bitoffset++;
-    return ((this.view.getUint8(byteoffset) >> (7 - skip))&1) as 0|1;
+    return ((this.view.getUint8(byteoffset) >> (7 - skip)) & 1) as 0|1;
   }
 }
 
@@ -96,7 +96,7 @@ export type SPSInfo = {
 };
 
 export function parseSPS(nal: Uint8Array): SPSInfo {
-  const stream = new Bitstream(new DataView(nal.buffer, nal.byteOffset+4));
+  const stream = new Bitstream(new DataView(nal.buffer, nal.byteOffset + 4));
     
   const profile_idc = nal[1];
   const profile_compatibility = nal[2];

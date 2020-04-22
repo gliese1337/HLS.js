@@ -46,8 +46,8 @@ export function audio_data(stream: StreamData): AudioTrack {
 
   // Shift ADTS payloads in the buffer to eliminate intervening headers
   for (woffset = 0; roffset < audioSize;) {
-    const header_length = (audioView.getUint8(roffset+1)&1) ? 7 : 9;
-    const packet_length = (audioView.getUint32(roffset+2)>>5)&0x1fff;
+    const header_length = (audioView.getUint8(roffset + 1) & 1) ? 7 : 9;
+    const packet_length = (audioView.getUint32(roffset + 2) >> 5) & 0x1fff;
     const data_length = packet_length - header_length;
 
     // Empirically, there's always 1 AAC/ADTS frame,
@@ -57,8 +57,8 @@ export function audio_data(stream: StreamData): AudioTrack {
 
     audioBuffer.set(
       audioBuffer.subarray(
-        roffset+header_length,
-        roffset+packet_length
+        roffset + header_length,
+        roffset + packet_length
       ), woffset
     );
 
