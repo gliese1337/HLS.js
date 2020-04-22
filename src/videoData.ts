@@ -1,5 +1,5 @@
 import { parseSPS, SPSInfo } from './SPSParser';
-import { StreamData, Packet } from './streamData';
+import { Packet } from './streamData';
 
 /* Video Helper Functions */
 
@@ -63,31 +63,39 @@ export type VideoTrack = {
   data: Uint8Array;
 };
 
-export function video_data({ packets }: StreamData): VideoTrack {
-  let pps: Uint8Array = null as unknown as Uint8Array;
-  let sps: Uint8Array = null as unknown as Uint8Array;
+export class VideoStream {
+  private last_packet: Packet | null = null;
+  private nalus: Uint8Array[] = [];
+  private pps: Uint8Array = null as unknown as Uint8Array;
+  private sps: Uint8Array = null as unknown as Uint8Array;
+  private samples: VideoSampleInfo[] = [];
+  private duration = 0;
+  private frame_sum = 0;
+  private frame_count = 0;
+  private zeroes = 0;
 
-  const samples = [];
-  const nalus = [];
-    
-  let duration = 0;
-  let zeroes = 0;
-  let frame_sum = 0;
-  let frame_count = 0;
-  let offset = 0;
-  let packet = packets[0]
-  for (let i = 1, len = packets.length; i <= len; i++) {
-    const next: Packet = packets[i] || { dts: packet.dts, pts: 0, frame_ticks: 0, data: null };
+  public byteLength = 0;
+
+  process(packet: Packet) {
+    if (!this.last_packet) {
+      this.last_packet = packet;
+      return;
+    }
+
+    const { nalus } = this;
+    const next = packet;
+    packet = this.last_packet;
+
     let size = 0;
     let isIDR = false;
 
     for (const nalUnit of parseNALStream(packet.data)) {
       switch (nalUnit[0] & 0x1F) {
         case 7:
-          sps = nalUnit;
+          this.sps = nalUnit;
           break;
         case 8:
-          pps = nalUnit;
+          this.pps = nalUnit;
           break;
         case 5:
           isIDR = true;
@@ -98,8 +106,9 @@ export function video_data({ packets }: StreamData): VideoTrack {
     }
 
     const dts_delta = next.dts - packet.dts;
-    samples.push({
-      offset, size, isIDR,
+    this.samples.push({
+      size, isIDR,
+      offset: this.byteLength,
       pts: packet.pts,
       dts: packet.dts,
       cts: packet.pts - packet.dts,
@@ -107,32 +116,38 @@ export function video_data({ packets }: StreamData): VideoTrack {
     });
 
     if (dts_delta) {
-      duration += dts_delta;
-      frame_sum += dts_delta;
-      frame_count++;
+      this.duration += dts_delta;
+      this.frame_sum += dts_delta;
+      this.frame_count++;
     } else {
-      zeroes++;
+      this.zeroes++;
     }
 
-    offset += size;
-    packet = next;
+    this.byteLength += size;
+    this.last_packet = next;
   }
 
-  const frame_rate = Math.round(frame_sum / frame_count);
-  duration += zeroes * frame_rate;
+  getTrack(): VideoTrack {
+    const {
+      frame_count, frame_sum, zeroes,
+      samples, sps, pps, nalus, byteLength,
+    } = this;
+    const frame_rate = Math.round(frame_sum / frame_count);
+    const duration = this.duration + zeroes * frame_rate;
 
-  const spsInfo = parseSPS(sps);
-  const cropping = spsInfo.frame_cropping;
+    const spsInfo = parseSPS(sps);
+    const cropping = spsInfo.frame_cropping;
 
-  return {
-    type: 'video',
-    pps, sps, spsInfo,
-    width: (spsInfo.pic_width_in_mbs * 16)
-        - (cropping.left + cropping.right) * 2,
-    height: (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
-        - (cropping.top + cropping.bottom) * 2,
-    samples, duration,
-    byte_offset: 0,
-    data: mergeNALUs(nalus, offset),
-  };
+    return {
+      type: 'video',
+      pps, sps, spsInfo,
+      width: (spsInfo.pic_width_in_mbs * 16)
+          - (cropping.left + cropping.right) * 2,
+      height: (2 - spsInfo.frame_mbs_only_flag) * (spsInfo.pic_height_in_map_units * 16)
+          - (cropping.top + cropping.bottom) * 2,
+      samples, duration,
+      byte_offset: 0,
+      data: mergeNALUs(nalus, byteLength),
+    };
+  }
 }
