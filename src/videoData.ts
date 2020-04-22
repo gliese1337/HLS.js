@@ -1,5 +1,5 @@
 import { parseSPS, SPSInfo } from './SPSParser';
-import { StreamData, Packet } from './TSDemuxer';
+import { StreamData, Packet } from './streamData';
 
 /* Video Helper Functions */
 

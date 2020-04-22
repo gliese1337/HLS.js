@@ -1,4 +1,4 @@
-import { StreamData } from "./TSDemuxer";
+import { StreamData } from "./streamData";
 
 const sampleRates = [
   96000, 88200, 64000, 48000, 44100, 32000,

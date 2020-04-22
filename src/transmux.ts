@@ -1,10 +1,19 @@
 import { video_data } from './videoData';
 import { audio_data } from './audioData';
-import { TSDemuxer, ErrCodes, StreamData, programs2streams } from './TSDemuxer';
+import { TSDemuxer, ErrCodes } from './TSDemuxer';
 import { MP4File, Track } from './MP4Muxer';
+import { StreamData } from './streamData';
 
 export function transmux(data: Uint8Array): Uint8Array {
-  const demuxer = new TSDemuxer();
+  const videoStream = new StreamData();
+  const audioStream = new StreamData();
+  const demuxer = new TSDemuxer((packet) => {
+    switch (packet.stream_id) {
+      case 0xE0: videoStream.add(packet); break;
+      case 0xC0: audioStream.add(packet); break;
+    }
+  });
+
   for (let i = 0; i < data.byteLength; i += 500) {
     const err = demuxer.process(data.subarray(i, i + 500));//, i, Math.min(500, data.byteLength - i));
     if (err > 1) throw new Error(`${ err }, ${ ErrCodes[err] }`);
@@ -12,11 +21,11 @@ export function transmux(data: Uint8Array): Uint8Array {
   
   //const err = demuxer.process(data);
   //if (err > 1) throw new Error(ErrCodes[err]);
-  const streams = programs2streams(demuxer.pids);
+  demuxer.finalize();
 	const tracks: Track[] = [];
 
-	if (streams.has(0xE0)) { tracks.push(video_data(streams.get(0xE0) as StreamData)); }
-	if (streams.has(0xC0)) { tracks.push(audio_data(streams.get(0xC0) as StreamData)); }
+	if (videoStream.byteLength > 0) { tracks.push(video_data(videoStream)); }
+	if (audioStream.byteLength > 0) { tracks.push(audio_data(audioStream)); }
 
 	return MP4File(tracks);
 }

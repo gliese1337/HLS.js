@@ -60,7 +60,13 @@ export type Packet = {
   data: Uint8Array;
   pts: number;
   dts: number;
-  frame_ticks: number;
+  frame_ticks:   number;
+  program:       number; // program number (1,2 ...)
+  stream_number: number; // stream number in program
+  type:          number; // media type / encoding
+  stream_id:     number; // MPEG stream id
+  content_type:  number; // 1 - audio, 2 - video
+  frame_num:     number;
 };
 
 class Stream {
@@ -74,20 +80,13 @@ class Stream {
   public first_pts = 0;
   public last_pts = 0;
   public has_pts = false;
-  public frame_ticks = 0;    // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_ticks=fps)
+  public frame_ticks = 0;   // current time to show frame in ticks (90 ticks = 1 ms, 90000/frame_ticks=fps)
   public frame_num = 0;     // frame count
-  public packets: Packet[] = [];
-  public byteLength = 0;
-  public payload: Payload | null = null;
+  private payload: Payload | null = null;
 
-  get fps(): number { return 90000 / this.frame_ticks; }
-  get length(): number {
-    return (this.last_pts + this.frame_ticks - this.first_pts) / 90000;
-  }
-
-  finalize(): void {
+  finalize(): Packet | null {
     const { payload } = this;
-    if (payload === null) return;
+    if (payload === null) return null;
     let data: Uint8Array;
     if (payload.buffer.length === 1) {
       data = payload.buffer[0];
@@ -99,21 +98,30 @@ class Stream {
         offset += b.byteLength;
       }
     }
-    this.packets.push({
+    return {
       data,
       pts: payload.pts,
       dts: payload.dts,
       frame_ticks: payload.frame_ticks,
-    });
+      program: this.program,
+      stream_number: this.id,
+      stream_id: this.stream_id,
+      type: this.type,
+      content_type: this.content_type,
+      frame_num: this.frame_num,
+    };
   }
 
-  write(mem: DataView, ptr: number, len: number, pstart: number, copy: boolean): void {
+  write(
+    mem: DataView, ptr: number, len: number,
+    pstart: number, copy: boolean,
+  ): Packet | null {
     const { payload } = this;
     let data = new Uint8Array(mem.buffer, mem.byteOffset + ptr, len);
     if (copy) data = data.slice();
     if (pstart || payload === null) {
       // finalize previously accumulated packet
-      this.finalize();
+      const packet = this.finalize();
       // start new packet
       this.payload = {
         buffer: [data],
@@ -122,11 +130,12 @@ class Stream {
         dts: this.dts,
         frame_ticks: this.frame_ticks,
       };
-    } else {
-      payload.buffer.push(data);
-      payload.buflen += len;
+      return packet;
     }
-    this.byteLength += len;
+    payload.buffer.push(data);
+    payload.buflen += len;
+
+    return null;
   }
 }
 
@@ -171,13 +180,23 @@ function get_stream_type(type_id: number): number {
   return stream_type.data;
 }
 
-const tlist = [
-  stream_type.unknown, stream_type.video, stream_type.video, stream_type.video,
-  stream_type.audio, stream_type.audio, stream_type.audio, stream_type.audio,
-];
-
 function get_media_type(type_id: number): number {
-  return tlist[get_stream_type(type_id)];
+  switch (type_id) {
+  case 0x01: // mpeg2_video
+  case 0x02: // mpeg2_video
+  case 0x80: // mpeg2_video
+  case 0x1b: // h264_video
+  case 0xea: // vc1_video
+    return stream_type.video;
+  case 0x81: // ac3_audio
+  case 0x06: // ac3_audio
+  case 0x03: // mpeg2_audio
+  case 0x04: // mpeg2_audio
+  case 0x0f: // aac_audio
+    return stream_type.audio;
+  }
+
+  return stream_type.unknown;
 }
 
 function decode_ts(mem: DataView, p: number): number {
@@ -190,29 +209,29 @@ function decode_ts(mem: DataView, p: number): number {
 
 function decode_pat(mem: DataView, ptr: number, len: number, pids: Map<number, Stream>, pstart: number): number {
   if (pstart) {
-    if (len < 1) { return 6; }
+    if (len < 1) { return 6; } // Incomplete PES Packet (Possibly PAT)
     ptr += 1; // skip pointer field
     len -= 1;
   }
 
   //check table ID
   if (mem.getUint8(ptr) !== 0x00) { return 0; } // not a PAT after all
-  if (len < 8) { return 7; }
+  if (len < 8) { return 7; } // Incomplete PAT
 
   // check flag bits and length
   let l = mem.getUint16(ptr + 1);
-  if ((l & 0xb000) !== 0xb000) { return 8; } // invalid header
+  if ((l & 0xb000) !== 0xb000) { return 8; } // Invalid PAT Header
 
   l &= 0x0fff;
   len -= 3;
 
-  if (l > len) { return 9; }
+  if (l > len) { return 9; } // PAT Overflows File Length
 
   len -= 5;
   ptr += 8;
   l -= 5 + 4;
 
-  if (l % 4) { return 10; }
+  if (l % 4) { return 10; } // PAT Body Isn't a Multiple of the Entry Size (32 bits)
 
   const n = l / 4;
   for (let i = 0;i < n;i++) {
@@ -220,7 +239,7 @@ function decode_pat(mem: DataView, ptr: number, len: number, pids: Map<number, S
     let pid = mem.getUint16(ptr + 2);
 
     // 3 reserved bits should be on
-    if ((pid & 0xe000) !== 0xe000) { return 11; }
+    if ((pid & 0xe000) !== 0xe000) { return 11; } // Invalid PAT Entry
 
     pid &= 0x1fff;
     ptr += 4;
@@ -251,20 +270,20 @@ function decode_pmt(
   pstart: number,
 ): number {
   if (pstart) {
-    if (len < 1) { return 12; }
+    if (len < 1) { return 12; } // Incomplete PES Packet (Possibly PMT)
 
     ptr += 1;     // skip pointer field
     len -= 1;
 
     if (mem.getUint8(ptr) !== 0x02) { return 0; } // not a PMT after all
-    if (len < 12) { return 13; }
+    if (len < 12) { return 13; } // Incomplete PMT
 
     // check flag bits and length
     let l = mem.getUint16(ptr + 1);
-    if ((l & 0x3000) !== 0x3000) { return 14; } // invalid header
+    if ((l & 0x3000) !== 0x3000) { return 14; } // Invalid PMT Header
 
     l = (l & 0x0fff) + 3;
-    if (l > 512) { return 15; }
+    if (l > 512) { return 15; } // PMT Length Too Large
 
     pmt.reset(l);
 
@@ -274,7 +293,7 @@ function decode_pmt(
 
     if (pmt.offset < pmt.len) { return 0; } // wait for next part
   } else {
-    if (!pmt.offset) { return 16; }
+    if (!pmt.offset) { return 16; } // PMT Doesn't Start at Beginning of TS Packet Payload
 
     let l = pmt.len - pmt.offset;
     if (len < l) l = len;
@@ -287,21 +306,22 @@ function decode_pmt(
   let { ptr: pmt_ptr, len: l } = pmt;
   const pmt_mem = pmt.mem;
   const n = (pmt_mem.getUint16(pmt_ptr + 10) & 0x0fff) + 12;
-  if (n > l) { return 17; }
+  if (n > l) { return 17; } // Program Info Oveflows PMT Length
 
   pmt_ptr += n;
   l -= n + 4;
 
   while (l) {
-    if (l < 5) { return 18; }
+    if (l < 5) { return 18; } // Incomplete Elementary Stream Info
 
-    const type = pmt_mem.getUint8(pmt_ptr);
     let pid = pmt_mem.getUint16(pmt_ptr + 1);
-    if ((pid & 0xe000) !== 0xe000) { return 19; } // invalid flag bits
+    if ((pid & 0xe000) !== 0xe000) { return 19; } // Invalid Elementary Stream Header
 
     pid &= 0x1fff;
     const ll = (pmt_mem.getUint16(pmt_ptr + 3) & 0x0fff) + 5;
-    if (ll > l) { return 20; }
+    if (ll > l) { return 20; } // Elementary Stream Data Overflows PMT
+    
+    const type = get_stream_type(pmt_mem.getUint8(pmt_ptr));
 
     pmt_ptr += ll;
     l -= ll;
@@ -318,14 +338,18 @@ function decode_pmt(
   return 0;
 }
 
-function decode_pes(mem: DataView, ptr: number, len: number, s: Stream, pstart: number, copy: boolean): number {
+function decode_pes(
+  mem: DataView, ptr: number, len: number,
+  s: Stream, pstart: number,
+  cb: (p: Packet) => void, copy: boolean,
+): number {
   // PES (Packetized Elementary Stream)
   start: if (pstart) {
 
     // PES header
-    if (len < 6) { return 21; }
+    if (len < 6) { return 21; } // Incomplete PES Packet Header
     if (mem.getUint16(ptr) !== 0 || mem.getUint8(ptr + 2) !== 1) {
-      return 22;
+      return 22; // Invalid PES Header
     }
 
     const stream_id = mem.getUint8(ptr + 3);
@@ -344,11 +368,11 @@ function decode_pes(mem: DataView, ptr: number, len: number, s: Stream, pstart: 
     }
 
     // PES header extension
-    if (len < 3) { return 23; }
+    if (len < 3) { return 23; } // PES Packet Not Long Enough for Extended Header
 
     const bitmap = mem.getUint8(ptr + 1);
     const hlen = mem.getUint8(ptr + 2) + 3;
-    if (len < hlen) { return 24; }
+    if (len < hlen) { return 24; } // PES Header Overflows File Length
     if (l > 0) { l -= hlen; }
 
     switch (bitmap & 0xc0) {
@@ -395,13 +419,20 @@ function decode_pes(mem: DataView, ptr: number, len: number, s: Stream, pstart: 
   }
 
   if (s.stream_id && s.content_type !== stream_type.unknown) {
-    s.write(mem, ptr, len, pstart, copy);
+    const packet = s.write(mem, ptr, len, pstart, copy);
+    if (packet) cb(packet);
   }
 
   return 0;
 }
 
-function demux_packet(pmt: PMT, mem: DataView, ptr: number, pids: Map<number, Stream>, copy: boolean): number {
+function demux_packet(
+  pmt: PMT,
+  mem: DataView, ptr: number,
+  pids: Map<number, Stream>,
+  cb: (p: Packet) => void,
+  copy: boolean,
+): number {
   if (mem.getUint8(ptr) !== 0x47) { return 2; } // invalid packet sync byte
 
   let pid = mem.getUint16(ptr + 1);
@@ -421,7 +452,7 @@ function demux_packet(pmt: PMT, mem: DataView, ptr: number, pids: Map<number, St
 
   if (flags & 0x20) { // skip adaptation field
     const l = mem.getUint8(ptr) + 1;
-    if (l > len) { return 5; }
+    if (l > len) { return 5; } // Adaptation Field Overflows File Length
 
     ptr += l;
     len -= l;
@@ -436,30 +467,7 @@ function demux_packet(pmt: PMT, mem: DataView, ptr: number, pids: Map<number, St
   if (s.type === 0xff) {
     return decode_pmt(pmt, mem, ptr, len, pids, s, payload_start);
   }
-  return decode_pes(mem, ptr, len, s, payload_start, copy);
-}
-
-export type StreamData = {
-  type: number;
-  packets: Packet[];
-  byteLength: number;
-  length: number;
-};
-
-export function programs2streams(pids: Map<number, Stream>): Map<number, StreamData> {
-  const streams = new Map<number, StreamData>();
-  for (const s of pids.values()) {
-    s.finalize();
-    if (s.byteLength === 0) continue;
-    streams.set(s.stream_id, {
-      type: s.type,
-      packets: s.packets,
-      byteLength: s.byteLength,
-      length: s.length,
-    });
-  }
-
-  return streams;
+  return decode_pes(mem, ptr, len, s, payload_start, cb, copy);
 }
 
 /*function toHex(b: Uint8Array): string {
@@ -477,8 +485,10 @@ export class TSDemuxer {
   private ptr = 0;
   public readonly pids = new Map<number, Stream>();
 
+  constructor(private cb: (p: Packet) => void) {}
+
   process(buffer: Uint8Array, offset = 0, len = buffer.length - offset): number {
-    const { pmt, pids } = this;
+    const { pmt, pids, cb } = this;
     const remainder = (PACKET_LEN - this.ptr) % PACKET_LEN;
 
     // If we ended on a partial packet last
@@ -490,7 +500,7 @@ export class TSDemuxer {
       }
 
       this.leftover.set(buffer.subarray(offset, offset + remainder), this.ptr);
-      const n = demux_packet(pmt, this.lview, 0, pids, true);
+      const n = demux_packet(pmt, this.lview, 0, pids, cb, true);
       if (n) return n; // invalid packet
     }
 
@@ -508,8 +518,16 @@ export class TSDemuxer {
         return 1; // incomplete packet
       }
 
-      const n = demux_packet(pmt, mem, ptr, pids, false);
+      const n = demux_packet(pmt, mem, ptr, pids, cb, false);
       if (n) return n // invalid packet
+    }
+  }
+
+  finalize(): void {
+    const { pids, cb } = this;
+    for (const s of pids.values()) {
+      const packet = s.finalize();
+      if (packet) cb(packet);
     }
   }
 }
