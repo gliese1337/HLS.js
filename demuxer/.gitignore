@@ -1,0 +1,7 @@
+.vscode
+node_modules
+dist
+
+# Miscellaneous
+*.mp4
+*.exe

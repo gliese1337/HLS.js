@@ -1,0 +1,27 @@
+{
+  "name": "ts-demuxer",
+  "version": "1.0.0",
+  "description": "A demuxer for MPEG-TS streams.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc"
+  },
+  "keywords": [
+    "mpeg",
+    "ts",
+    "mpeg-ts",
+    "demux",
+    "video"
+  ],
+  "author": "Logan R. Kearsley",
+  "license": "MIT",  
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gliese1337/HLS.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gliese1337/HLS.js/issues"
+  },
+  "homepage": "https://github.com/gliese1337/HLS.js/demuxer#readme"
+}

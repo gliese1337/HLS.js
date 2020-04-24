@@ -1,4 +1,4 @@
-import { Packet } from "./TSDemuxer";
+import { Packet } from "ts-demuxer";
 
 export { Packet };
 

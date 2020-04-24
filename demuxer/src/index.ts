@@ -1,4 +1,4 @@
-/* Anton Burdinuk's C++ version:
+/* Based on Anton Burdinuk's C++ version:
  * https://github.com/clark15b/tsdemuxer/blob/67a20b47dd4a11282134ee61d390cc64d1083e61/v1.0/tsdemux.cpp
  */
 
@@ -469,14 +469,6 @@ function demux_packet(
   }
   return decode_pes(mem, ptr, len, s, payload_start, cb, copy);
 }
-
-/*function toHex(b: Uint8Array): string {
-  const a: string[] = [];
-  for (const n of b) {
-    a.push((n >>> 4).toString(16), (n & 0xf).toString(16)); 
-  }
-  return a.join('');
-}*/
 
 export class TSDemuxer {
   private pmt = new PMT();

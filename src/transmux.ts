@@ -1,6 +1,6 @@
 import { VideoStream } from './videoData';
 import { audio_data } from './audioData';
-import { TSDemuxer, ErrCodes } from './TSDemuxer';
+import { TSDemuxer, ErrCodes } from 'ts-demuxer';
 import { MP4File, Track } from './MP4Muxer';
 import { StreamData } from './streamData';
 
