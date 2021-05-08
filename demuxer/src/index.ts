@@ -481,17 +481,25 @@ export class TSDemuxer {
 
   process(buffer: Uint8Array, offset = 0, len = buffer.length - offset): number {
     const { pmt, pids, cb } = this;
+    // remainder indicates how many bytes we need to add
+    // to the leftovers to get a complete packet.
+    // Modulus operation ensures that if this.ptr = 0
+    // (i.e., there are no leftover), then remainder = 0;
     const remainder = (PACKET_LEN - this.ptr) % PACKET_LEN;
 
     // If we ended on a partial packet last
     // time, finish that packet first.
     if (remainder > 0) {
       if (len < remainder) {
+        // Add new data to the leftovers,
+        // but we still have an incomplete packet.
         this.leftover.set(buffer.subarray(offset, offset + len), this.ptr);
-        return 1; // still have an incomplete packet
+        this.ptr += len;
+        return 1; // incomplete packet
       }
 
       this.leftover.set(buffer.subarray(offset, offset + remainder), this.ptr);
+      this.ptr = 0;
       const n = demux_packet(pmt, this.lview, 0, pids, cb, true);
       if (n) return n; // invalid packet
     }
@@ -504,12 +512,13 @@ export class TSDemuxer {
     for (let ptr = offset;;ptr += PACKET_LEN) {
       const datalen = len - ptr;
       this.ptr = datalen;
-      if (datalen === 0) return 0; // complete packet
-      if (datalen < PACKET_LEN) {
+      if (datalen === 0) return 0; // ended on a complete packet
+      if (datalen < PACKET_LEN) { // insufficient data for another complete packet
         this.leftover.set(buffer.subarray(ptr, ptr + datalen));
         return 1; // incomplete packet
       }
 
+      // process one complete packet
       const n = demux_packet(pmt, mem, ptr, pids, cb, false);
       if (n) return n // invalid packet
     }
