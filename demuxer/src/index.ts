@@ -199,12 +199,20 @@ function get_media_type(type_id: number): number {
   return stream_type.unknown;
 }
 
+const SHIFT_29 = 2 ** 29;
 function decode_ts(mem: DataView, p: number): number {
-  return ((mem.getUint8(p)  & 0xe ) << 29) |
+  // A multiply by a power of 2 is required for the
+  // highest-order bits rather than a shift to avoid
+  // downcasting to a 32-bit signed integer, which would
+  // cause overflow. The lower bits which will fit in a
+  // 31-bit integer can be composed with bitwise
+  // operations, and then added to the high-bit integer.
+  return ((mem.getUint8(p)     & 0xe ) * SHIFT_29) + (
          ((mem.getUint8(p + 1) & 0xff) << 22) |
          ((mem.getUint8(p + 2) & 0xfe) << 14) |
          ((mem.getUint8(p + 3) & 0xff) << 7) |
-         ((mem.getUint8(p + 4) & 0xfe) >> 1);
+         ((mem.getUint8(p + 4) & 0xfe) >> 1)
+  );
 }
 
 function decode_pat(mem: DataView, ptr: number, len: number, pids: Map<number, Stream>, pstart: number): number {
