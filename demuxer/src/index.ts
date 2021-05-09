@@ -475,9 +475,23 @@ export class TSDemuxer {
   private leftover = new Uint8Array(PACKET_LEN);
   private lview = new DataView(this.leftover.buffer);
   private ptr = 0;
+
+  // holds the offset into the input buffer
+  // at which the last packet demuxing attempt
+  // was made in the event of a error.
+  public offset = 0;
   public readonly pids = new Map<number, Stream>();
 
   constructor(private cb: (p: Packet) => void) {}
+
+  // Find the start of the next packet in a buffer
+  static resync(buffer: Uint8Array, offset = 0): number {
+    const l = buffer.length;
+    for (; offset < l; offset++) {
+      if (buffer[offset] === 0x47) { return offset; }
+    }
+    return -1;
+  }
 
   process(buffer: Uint8Array, offset = 0, len = buffer.length - offset): number {
     const { pmt, pids, cb } = this;
@@ -495,24 +509,27 @@ export class TSDemuxer {
         // but we still have an incomplete packet.
         this.leftover.set(buffer.subarray(offset, offset + len), this.ptr);
         this.ptr += len;
+        this.offset = 0;
         return 1; // incomplete packet
       }
 
       this.leftover.set(buffer.subarray(offset, offset + remainder), this.ptr);
       this.ptr = 0;
+      this.offset = offset;
       const n = demux_packet(pmt, this.lview, 0, pids, cb, true);
-      if (n) return n; // invalid packet
+      if (n) { return n; } // invalid packet
     }
 
     len += offset;
     offset += remainder;
+    this.offset = 0;
 
     // Process remaining packets in this chunk
     const mem = new DataView(buffer.buffer, buffer.byteOffset);
     for (let ptr = offset;;ptr += PACKET_LEN) {
       const datalen = len - ptr;
       this.ptr = datalen;
-      if (datalen === 0) return 0; // ended on a complete packet
+      if (datalen === 0) { return 0; } // ended on a complete packet
       if (datalen < PACKET_LEN) { // insufficient data for another complete packet
         this.leftover.set(buffer.subarray(ptr, ptr + datalen));
         return 1; // incomplete packet
@@ -520,7 +537,11 @@ export class TSDemuxer {
 
       // process one complete packet
       const n = demux_packet(pmt, mem, ptr, pids, cb, false);
-      if (n) return n // invalid packet
+      if (n) {
+        this.ptr = 0;
+        this.offset = ptr; 
+        return n; // invalid packet
+      }
     }
   }
 
@@ -528,7 +549,7 @@ export class TSDemuxer {
     const { pids, cb } = this;
     for (const s of pids.values()) {
       const packet = s.finalize();
-      if (packet) cb(packet);
+      if (packet) { cb(packet); }
     }
   }
 }
