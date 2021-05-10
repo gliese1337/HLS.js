@@ -26,14 +26,14 @@ The `TSDemuxer` constructor takes a callback which recieves a packet structure w
 ```ts
 type Packet = {
   data: Uint8Array;
-  pts: number;
-  dts: number;
-  frame_ticks:   number;
+  pts: number;   // presentation time stamp
+  dts: number;   // decoding time stamp
+  frame_ticks:   number; // time stamp ticks per frame
   program:       number; // program number (1,2 ...)
   stream_number: number; // stream number in program
-  type:          number; // media type / encoding
+  type:          number; // media type / encoding; int -> string mappings in `StreamTypes`
   stream_id:     number; // MPEG stream id
-  content_type:  number; // 1 - audio, 2 - video
+  content_type:  number; // 1 - audio, 2 - video; int -> string mappings in `ContentTypes`
   frame_num:     number;
 };
 ```
@@ -43,10 +43,14 @@ which can be used to dispatch the data in whatever way is appropriate. This call
 The full API is as follows:
 
 ```ts
+type DemuxOptions = {
+    copy?: boolean;
+};
+
 class TSDemuxer {
     offset: number;
     readonly pids: Map<number, Stream>;
-    constructor(cb: (p: Packet) => void);
+    constructor(cb: (p: Packet) => void, opts?: DemuxOptions);
     static resync(buffer: Uint8Array, offset?: number): number;
     process(buffer: Uint8Array, offset?: number, len?: number): number;
     finalize(): void;
@@ -58,6 +62,8 @@ Data is fed to the demuxer via `demuxer.process(data: Uint8Array, offset = 0, le
 The `demuxer.process(data)` method returns an integer status code. 0 indicates normal termination; 1 indicates that the last chunk of data ended in the middle of a frame, and more data is expected. Other numbers indicate various errors whose textual explanations can be looked up in the `ErrCodes` array.
 
 If an error is returned, `demuxer.offset` will be set to the offset in the data buffer where the last packet for which demuxing was attempted is located. This can be used to try resyncing and continuing demuxing without dropping packets.
+
+By default `Packet` data will alias the original `ArrayBuffer`s underlying the `Uint8Array`s passed into `demuxer.process` (except where it is necessary to allocate a new buffer to hold packet data the broken across original buffer boundaries). In order to force allocation of new buffers for all packets, construct the `TSDemuxer` object with the `{ copy: true }` option.
 
 Metadata for individual streams can be inspected during and after demuxing via the readonly `demuxer.pids` property. The map values are objects of the following form:
 
