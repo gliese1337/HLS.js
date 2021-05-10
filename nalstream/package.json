@@ -1,0 +1,39 @@
+{
+  "name": "ts-nalstream",
+  "version": "1.0.1",
+  "description": "Parse NAL units out of MPEG-TS Video Stream Packets",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "keywords": [
+    "mpeg",
+    "ts",
+    "mpeg-ts",
+    "demux",
+    "video",
+    "nalu",
+    "h264",
+    "h.264",
+    "hevc"
+  ],
+  "author": "Logan R. Kearsley",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gliese1337/HLS.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gliese1337/HLS.js/issues"
+  },
+  "homepage": "https://github.com/gliese1337/HLS.js/nalstream#readme",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^2.29.0",
+    "@typescript-eslint/parser": "^2.29.0",
+    "eslint": "^7.26.0",
+    "typescript": "^4.2.4"
+  }
+}
