@@ -1,0 +1,36 @@
+{
+  "name": "h264-sps-parser",
+  "version": "0.1.0",
+  "description": "Parse H.264 SPS NAL units",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix"
+  },
+  "keywords": [
+    "mpeg",
+    "sps",
+    "video",
+    "nalu",
+    "h264",
+    "h.264"
+  ],
+  "author": "Logan R. Kearsley",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gliese1337/HLS.js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gliese1337/HLS.js/issues"
+  },
+  "homepage": "https://github.com/gliese1337/HLS.js/spsparser#readme",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^2.29.0",
+    "@typescript-eslint/parser": "^2.29.0",
+    "eslint": "^7.26.0",
+    "typescript": "^4.2.4"
+  }
+}

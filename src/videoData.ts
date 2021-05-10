@@ -1,31 +1,6 @@
 import { parseSPS, SPSInfo } from './SPSParser';
 import { Packet } from './streamData';
 
-/* Video Helper Functions */
-
-function * parseNALStream(bytes: Uint8Array): Generator<Uint8Array> {
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  const len = bytes.byteLength - 3;
-
-  let start: number;
-  let end = 1;
-  do {
-    // Check # of sync bytes (0x000001 or 0x00000001)
-    end += view.getUint16(end + 1) ? 3 : 4;
-    for (start = end; end < len; end++) {
-      // Step forward until we hit another 3- or 4-byte header
-      if (view.getUint16(end) === 0 &&
-        (bytes[end + 2] === 1 || (view.getUint16(end + 2) === 1))) {
-        yield bytes.subarray(start, end);
-        break;
-      }
-    }
-  } while (end < len);
-  // A packet can't end with a header,
-  // so one last NAL Unit extends to the end
-  yield bytes.subarray(start);
-}
-
 // Merge NAL Units from all packets into a single
 // continuous buffer, separated by 4-byte length headers
 function mergeNALUs(nalus: Uint8Array[], length: number): Uint8Array {
