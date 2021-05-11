@@ -20,6 +20,8 @@ function ExpGolomInit(view: DataView, bitoffset: number): { zeros: number; skip:
   return { zeros, skip, byt, byteoffset };
 }
 
+const shift16 = 2 ** 16;
+
 export class Bitstream {
   public bitoffset = 0;
     constructor (public view: DataView) {}
@@ -56,12 +58,12 @@ export class Bitstream {
     const skip = this.bitoffset & 7;
     const byteoffset = this.bitoffset >> 3;
     this.bitoffset++;
-    return ((this.view.getUint8(byteoffset) >> (7 - skip)) & 1) as 0|1;
+    return ((this.view.getUint8(byteoffset) >>> (7 - skip)) & 1) as 0|1;
   }
   
   readByte(): number {
     const skip = this.bitoffset & 7;
-    const byteoffset = this.bitoffset >> 3;
+    const byteoffset = this.bitoffset >>> 3;
     this.bitoffset += 8;
 
     const high = this.view.getUint8(byteoffset);
@@ -69,6 +71,69 @@ export class Bitstream {
 
     const low = this.view.getUint8(byteoffset + 1);
 
-    return (high << skip) | (low >> (8 - skip));
+    return (high << skip) | (low >>> (8 - skip));
+  }
+
+  readNibble(): number {
+    const skip = this.bitoffset & 7;
+    const byteoffset = this.bitoffset >> 3;
+    this.bitoffset += 4
+
+    const high = this.view.getUint8(byteoffset);
+    if (skip === 0) return high >>> 4;
+    if (skip <= 4) return (high >>> (4 - skip)) & 0xf;
+
+    const low = this.view.getUint8(byteoffset + 1);
+
+    return ((high << (skip - 4)) | (low >>> (12 - skip))) & 0xf;
+  }
+
+  read5(): number {
+    const skip = this.bitoffset & 7;
+    const byteoffset = this.bitoffset >> 3;
+    this.bitoffset += 5;
+
+    const high = this.view.getUint8(byteoffset);
+    if (skip === 0) return high >>> 3;
+    if (skip <= 3) return (high >>> (3 - skip)) & 0x1f;
+
+    const low = this.view.getUint8(byteoffset + 1);
+
+    return ((high << (skip - 3)) | (low >>> (11 - skip))) & 0x1f;
+  }
+
+
+  readWord(): number {
+    const skip = this.bitoffset & 7;
+    const byteoffset = this.bitoffset >>> 3;
+    this.bitoffset += 32;
+
+    const { view } = this;
+
+    const tmp = (view.getUint16(byteoffset) * shift16) +
+                view.getUint16(byteoffset + 2);
+
+    if (skip === 0) return tmp;
+    
+    return (tmp * (2 ** skip)) + (view.getUint8(byteoffset + 4) >>> (8 - skip));
+  }
+
+  more_rbsp_data(): boolean {
+    const skip = this.bitoffset & 7;
+    let byteoffset = this.bitoffset >> 3;
+    const l = this.view.byteLength;
+    if (byteoffset >= l) return false;
+    let byte = (this.view.getUint8(byteoffset) << skip) & 0xff;
+    let found_bit = byte > 0;
+    if (found_bit && !Number.isInteger(Math.log2(byte))) return true;
+    while (++byteoffset < l) {
+      byte = this.view.getUint8(byteoffset);
+      const has_bit = byte > 0;
+      if (found_bit && has_bit) return true;
+      if (has_bit && !Number.isInteger(Math.log2(byte))) return true;
+      found_bit = found_bit || has_bit;
+    }
+
+    return false;
   }
 }

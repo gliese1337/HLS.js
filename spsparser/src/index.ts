@@ -1,12 +1,14 @@
 import { Bitstream } from "./bitstream";
 import { getVUIParams, VUIParams } from "./vui";
 
-type FrameCropping = {
+export type FrameCropping = {
   left: number;
   right: number;
   top: number;
   bottom: number;
 };
+
+export { VUIParams, Bitstream };
 
 export type SPSInfo = {
   sps_id: number;
@@ -19,6 +21,7 @@ export type SPSInfo = {
   frame_cropping_flag: 0|1;
   frame_cropping: FrameCropping;
 
+  chroma_format_idc: number;
   bit_depth_luma: number;
   bit_depth_chroma: number;
   color_plane_flag: 0|1;
@@ -41,19 +44,21 @@ export type SPSInfo = {
   vui_parameters: VUIParams;
 };
 
-function scaling_list(stream: Bitstream, sizeOfScalingList: number): number[] {
+function scaling_list(stream: Bitstream, sizeOfScalingList: number, use_default: number[], i: number): number[] {
   let lastScale = 8;
   let nextScale = 8;
-  const scaling_list = [];
+  const scalingList = [];
   for (let j = 0; j < sizeOfScalingList; j++) {
     if (nextScale !== 0) {
       const deltaScale = stream.SignedExpGolomb();
       nextScale = (lastScale + deltaScale + 256) % 256;
+      use_default[i] = +(j === 0 && nextScale === 0);
     }
     if (nextScale) { lastScale = nextScale; }
-    scaling_list.push(nextScale);
+    scalingList[j] = lastScale;
+    
   }
-  return scaling_list;
+  return scalingList;
 }
 
 function getFrameCropping(flag: 0|1, stream: Bitstream): FrameCropping {
@@ -83,12 +88,16 @@ export function parse(nalu: Uint8Array): SPSInfo {
   let qpprime_y_zero_transform_bypass_flag: 0|1 = 0;
   let seq_scaling_matrix_present_flag: 0|1 = 0;
 
-  const seq_scaling_matrix = [];
+  const scaling_list_4x4: number[][] = [];
+  const scaling_list_8x8: number[][] = [];
+  const use_default_scaling_matrix_4x4_flag: number[] = [];
+  const use_default_scaling_matrix_8x8_flag: number[] = [];
 
-  if (	profile_idc === 100 || profile_idc === 110 ||
-    profile_idc === 122 || profile_idc === 244 || profile_idc === 44 ||
-    profile_idc === 83  || profile_idc === 86  || profile_idc === 118 ||
-    profile_idc === 128 ) {
+  if (profile_idc === 100 || profile_idc === 110 ||
+      profile_idc === 122 || profile_idc === 244 || profile_idc === 44 ||
+      profile_idc === 83  || profile_idc === 86  || profile_idc === 118 ||
+      profile_idc === 128 || profile_idc === 138 || profile_idc === 139 ||
+      profile_idc === 134 || profile_idc === 135) {
     chroma_format_idc = stream.ExpGolomb();
     let limit = 8;
     if (chroma_format_idc === 3) {
@@ -103,12 +112,22 @@ export function parse(nalu: Uint8Array): SPSInfo {
       let i = 0;
       for (; i < 6; i++) {
         if (stream.readBit()) { //seq_scaling_list_present_flag
-          seq_scaling_matrix.push(scaling_list(stream, 16));
+          scaling_list_4x4.push(
+            scaling_list(
+              stream, 16,
+              use_default_scaling_matrix_4x4_flag, i,
+            )
+          );
         }
       }
       for (; i < limit; i++) {
         if (stream.readBit()) { //seq_scaling_list_present_flag
-          seq_scaling_matrix.push(scaling_list(stream, 64));
+          scaling_list_8x8.push(
+            scaling_list(
+              stream, 64,
+              use_default_scaling_matrix_8x8_flag, i - 6,
+            )
+          );
         }
       }
     }
@@ -121,7 +140,7 @@ export function parse(nalu: Uint8Array): SPSInfo {
   let offset_for_non_ref_pic = 0;
   let offset_for_top_to_bottom_field = 0;
 
-  const offset_for_ref_frame = [];
+  const offset_for_ref_frame: number[] = [];
 
   let log2_max_pic_order_cnt_lsb = 0;
   if (pic_order_cnt_type === 0) {
@@ -130,7 +149,7 @@ export function parse(nalu: Uint8Array): SPSInfo {
     delta_pic_order_always_zero_flag = stream.readBit();
     offset_for_non_ref_pic = stream.SignedExpGolomb();
     offset_for_top_to_bottom_field = stream.SignedExpGolomb();
-    const num_ref_frames_in_pic_order_cnt_cycle = stream.SignedExpGolomb();
+    const num_ref_frames_in_pic_order_cnt_cycle = stream.ExpGolomb();
     for (let i = 0; i < num_ref_frames_in_pic_order_cnt_cycle; i++) {
       offset_for_ref_frame.push(stream.SignedExpGolomb());
     }
@@ -158,12 +177,13 @@ export function parse(nalu: Uint8Array): SPSInfo {
     profile_compatibility,
     profile_idc,
     level_idc,
+    chroma_format_idc,
     bit_depth_luma,
     bit_depth_chroma,
     color_plane_flag,
     qpprime_y_zero_transform_bypass_flag,
     seq_scaling_matrix_present_flag,
-    seq_scaling_matrix,
+    seq_scaling_matrix: scaling_list_4x4,
     log2_max_frame_num,
     pic_order_cnt_type,
     delta_pic_order_always_zero_flag,
