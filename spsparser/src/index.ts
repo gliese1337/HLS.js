@@ -81,7 +81,7 @@ export function parse(nalu: Uint8Array): SPSInfo {
   const level_idc = nalu[3];
   const sps_id = stream.ExpGolomb();
 
-  let chroma_format_idc = 0;
+  let chroma_format_idc = 1;
   let bit_depth_luma = 0;
   let bit_depth_chroma = 0;
   let color_plane_flag: 0|1 = 0;

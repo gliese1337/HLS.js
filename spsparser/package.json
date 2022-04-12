@@ -1,6 +1,6 @@
 {
   "name": "h264-sps-parser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Parse H.264 SPS NAL units",
   "main": "dist/index.js",
   "scripts": {
