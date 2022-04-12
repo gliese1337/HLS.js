@@ -98,9 +98,10 @@ export function parse(nalu: Uint8Array, spss: Map<number, SPSInfo>): PPSInfo {
         break;
       }
       case 6: {
+        const v = Math.ceil(Math.log2(num_slice_groups));
         pic_size_in_map_units = stream.ExpGolomb() + 1;
         for (let i = 0; i < pic_size_in_map_units; i++) {
-          slice_group_id[i] = stream.ExpGolomb();
+          slice_group_id[i] = stream.readV(v);
         }
       }
     }

@@ -20,7 +20,11 @@ function ExpGolomInit(view: DataView, bitoffset: number): { zeros: number; skip:
   return { zeros, skip, byt, byteoffset };
 }
 
+const shift32 = 2 ** 32;
 const shift16 = 2 ** 16;
+const shift8 = 2 ** 8;
+const shift4 = 2 ** 4;
+const mask = [0, 1, 3, 7, 15, 31, 63, 127];
 
 export class Bitstream {
   public bitoffset = 0;
@@ -61,6 +65,22 @@ export class Bitstream {
     return ((this.view.getUint8(byteoffset) >>> (7 - skip)) & 1) as 0|1;
   }
   
+  // n < 8
+  readN(n: number): number {
+    const skip = this.bitoffset & 7;
+    const byteoffset = this.bitoffset >> 3;
+    this.bitoffset += n;
+
+    const inv = 8 - n;
+    const high = this.view.getUint8(byteoffset);
+    if (skip === 0) return high >>> inv;
+    if (skip <= inv) return (high >>> (inv - skip));
+
+    const low = this.view.getUint8(byteoffset + 1);
+
+    return ((high << (skip - inv)) | (low >>> (8 + inv - skip))) & mask[n];
+  }
+  
   readByte(): number {
     const skip = this.bitoffset & 7;
     const byteoffset = this.bitoffset >>> 3;
@@ -73,35 +93,6 @@ export class Bitstream {
 
     return (high << skip) | (low >>> (8 - skip));
   }
-
-  readNibble(): number {
-    const skip = this.bitoffset & 7;
-    const byteoffset = this.bitoffset >> 3;
-    this.bitoffset += 4
-
-    const high = this.view.getUint8(byteoffset);
-    if (skip === 0) return high >>> 4;
-    if (skip <= 4) return (high >>> (4 - skip)) & 0xf;
-
-    const low = this.view.getUint8(byteoffset + 1);
-
-    return ((high << (skip - 4)) | (low >>> (12 - skip))) & 0xf;
-  }
-
-  read5(): number {
-    const skip = this.bitoffset & 7;
-    const byteoffset = this.bitoffset >> 3;
-    this.bitoffset += 5;
-
-    const high = this.view.getUint8(byteoffset);
-    if (skip === 0) return high >>> 3;
-    if (skip <= 3) return (high >>> (3 - skip)) & 0x1f;
-
-    const low = this.view.getUint8(byteoffset + 1);
-
-    return ((high << (skip - 3)) | (low >>> (11 - skip))) & 0x1f;
-  }
-
 
   readWord(): number {
     const skip = this.bitoffset & 7;
@@ -116,6 +107,20 @@ export class Bitstream {
     if (skip === 0) return tmp;
     
     return (tmp * (2 ** skip)) + (view.getUint8(byteoffset + 4) >>> (8 - skip));
+  }
+
+  readV(v: number): number {
+    let n = 0;
+    while (v >= 32) {
+      n = n * shift32 + this.readWord();
+      v -= 32;
+    }
+    while (v >= 8) {
+      n = n * shift8 + this.readByte();
+      v -= 8;
+    }
+
+    return n * (2 ** v) + this.readN(v);
   }
 
   more_rbsp_data(): boolean {
