@@ -1,9 +1,14 @@
-export const stream_type = {
+export const content_types = {
   unknown     : 0,
   audio       : 1,
   video       : 2,
+} as const;
 
-  // http://en.wikipedia.org/wiki/Program-specific_information#Elementary_stream_types
+export type content_type = typeof content_types[keyof typeof content_types];
+export const ContentTypes = Object.keys(content_types) as (keyof typeof content_types)[];
+
+// http://en.wikipedia.org/wiki/Program-specific_information#Elementary_stream_types
+export const stream_types = {
   data        : 0,
   mpeg2_video : 1,
   h264_video  : 2,
@@ -12,24 +17,11 @@ export const stream_type = {
   mpeg2_audio : 5,
   lpcm_audio  : 6,
   aac_audio   : 7,
-};
+  unknown     : 0xff,
+} as const;
 
-export const ContentTypes: (keyof typeof stream_type)[] = [
-  'unknown',
-  'audio',
-  'video',
-];
-
-export const StreamTypes: (keyof typeof stream_type)[] = [
-  'data',
-  'mpeg2_video',
-  'h264_video',
-  'vc1_video',
-  'ac3_audio',
-  'mpeg2_audio',
-  'lpcm_audio',
-  'aac_audio',
-];
+export type stream_type = typeof stream_types[keyof typeof stream_types];
+export const StreamTypes = Object.keys(stream_types) as (keyof typeof stream_types)[];
 
 type Payload = {
   buffer: Uint8Array[];
@@ -44,20 +36,20 @@ export type Packet = {
   pts: number;
   dts: number;
   frame_ticks:   number;
-  program:       number; // program number (1,2 ...)
-  stream_number: number; // stream number in program
-  type:          number; // media type / encoding
-  stream_id:     number; // MPEG stream id
-  content_type:  number; // 1 - audio, 2 - video
+  program:       number;       // program number (1,2 ...)
+  stream_number: number;       // stream number in program
+  type:          stream_type;  // media type / encoding
+  stream_id:     number;       // MPEG stream id
+  content_type:  content_type; // 1 - audio, 2 - video
   frame_num:     number;
 };
 
 export class Stream {
   public program = 0xffff;  // program number (1,2 ...)
   public id = 0;            // stream number in program
-  public type = 0xff;
+  public type: stream_type = 0xff;
   public stream_id = 0;     // MPEG stream id
-  public content_type = 0;  // 1 - audio, 2 - video
+  public content_type: content_type = 0;  // 1 - audio, 2 - video
   public dts = 0;           // current MPEG stream DTS (presentation time for audio, decode time for video)
   public has_dts = false;
   public first_pts = 0;

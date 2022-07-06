@@ -1,46 +1,45 @@
-import { get_stream, Stream, stream_type } from "./stream";
+import { get_stream, Stream, stream_types, stream_type, content_types, content_type } from "./stream";
 
-function get_stream_type(type_id: number): number {
+function get_stream_type(type_id: number): stream_type {
   switch (type_id) {
   case 0x01:
   case 0x02:
-    return stream_type.mpeg2_video;
   case 0x80:
-    return stream_type.mpeg2_video;
+    return stream_types.mpeg2_video;
   case 0x1b:
-    return stream_type.h264_video;
+    return stream_types.h264_video;
   case 0xea:
-    return stream_type.vc1_video;
+    return stream_types.vc1_video;
   case 0x81:
   case 0x06:
-    return stream_type.ac3_audio;
+    return stream_types.ac3_audio;
   case 0x03:
   case 0x04:
-    return stream_type.mpeg2_audio;
+    return stream_types.mpeg2_audio;
   case 0x0f:
-    return stream_type.aac_audio;
+    return stream_types.aac_audio;
   }
 
-  return stream_type.data;
+  return stream_types.data;
 }
 
-function get_media_type(type_id: number): number {
+function get_content_type(type_id: number): content_type {
   switch (type_id) {
   case 0x01: // mpeg2_video
   case 0x02: // mpeg2_video
   case 0x80: // mpeg2_video
   case 0x1b: // h264_video
   case 0xea: // vc1_video
-    return stream_type.video;
+    return content_types.video;
   case 0x81: // ac3_audio
   case 0x06: // ac3_audio
   case 0x03: // mpeg2_audio
   case 0x04: // mpeg2_audio
   case 0x0f: // aac_audio
-    return stream_type.audio;
+    return content_types.audio;
   }
 
-  return stream_type.unknown;
+  return content_types.unknown;
 }
 
 function memcpy(
@@ -122,7 +121,8 @@ export class PMT {
       const ll = (pmt_mem.getUint16(pmt_ptr + 3) & 0x0fff) + 5;
       if (ll > l) { return 20; } // Elementary Stream Data Overflows PMT
       
-      const type = get_stream_type(pmt_mem.getUint8(pmt_ptr));
+      const type_byte = pmt_mem.getUint8(pmt_ptr);
+      const type = get_stream_type(type_byte);
 
       pmt_ptr += ll;
       l -= ll;
@@ -132,7 +132,7 @@ export class PMT {
         ss.program = s.program;
         ss.type = type;
         ss.id = ++s.id;
-        ss.content_type = get_media_type(type);
+        ss.content_type = get_content_type(type_byte);
       }
     }
 
