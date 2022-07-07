@@ -1,4 +1,4 @@
-import { Packet, Stream, stream_type } from "./stream";
+import { Packet, Stream, content_types } from "./stream";
 
 const SHIFT_29 = 2 ** 29;
 function decode_ts(mem: DataView, p: number): number {
@@ -61,7 +61,7 @@ export function decode_pes(
         if (s.has_dts && pts !== s.dts) { s.frame_ticks = pts - s.dts; }
         if (pts > s.last_pts || !s.has_pts) { s.last_pts = pts; }
 
-        if (s.first_pts === 0 && s.frame_num === (s.content_type === stream_type.video ? 1 : 0)) {
+        if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
           s.first_pts = pts;
         }
 
@@ -78,7 +78,7 @@ export function decode_pes(
         if (s.has_dts && dts > s.dts) { s.frame_ticks = dts - s.dts; }
         if (pts > s.last_pts || !s.has_pts) { s.last_pts = pts; }
 
-        if (s.first_pts === 0 && s.frame_num === (s.content_type === stream_type.video ? 1 : 0)) {
+        if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
           s.first_pts = pts;
         }
 
@@ -96,7 +96,7 @@ export function decode_pes(
     s.frame_num++;
   }
 
-  if (s.stream_id && s.content_type !== stream_type.unknown) {
+  if (s.stream_id && s.content_type !== content_types.unknown) {
     const packet = s.write(mem, ptr, len, pstart, copy);
     if (packet) cb(packet);
   }
