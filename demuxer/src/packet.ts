@@ -32,12 +32,25 @@ export function demux_packet(
   ptr += 4;
   let len = PACKET_LEN - 4;
 
-  if (flags & 0x20) { // skip adaptation field
-    const l = mem.getUint8(ptr) + 1;
-    if (l > len) { return 5; } // Adaptation Field Overflows File Length
+  let pcr: number | null = null;
 
-    ptr += l;
-    len -= l;
+  if (flags & 0x20) { // parse adaptation field
+    const adaptationFieldLength = mem.getUint8(ptr);
+    if (adaptationFieldLength + 1 > len) { return 5; } // Adaptation Field Overflows File Length
+
+    if (adaptationFieldLength > 0) {
+      const adaptationFieldFlags = mem.getUint8(ptr + 1);
+      const hasPCR = adaptationFieldFlags & 0x10; // Check if PCR flag is set
+
+      if (hasPCR) {
+        const pcrBase = mem.getUint32(ptr + 2) << 1 | (mem.getUint8(ptr + 6) >> 7);
+        const pcrExtension = mem.getUint8(ptr + 6) & 0x01;
+        pcr = pcrBase * 300 + pcrExtension; // Calculate PCR in 27 MHz units
+      }
+    }
+
+    ptr += adaptationFieldLength + 1;
+    len -= adaptationFieldLength + 1;
   }
 
   if (!pid) {
@@ -45,6 +58,7 @@ export function demux_packet(
   }
 
   const s = get_stream(pids, pid);
+  s.pcr = pcr;
   if (s.program === 0xffff) { return 0; }
   if (s.type === 0xff) {
     return pmt.decode(mem, ptr, len, pids, s, payload_start);

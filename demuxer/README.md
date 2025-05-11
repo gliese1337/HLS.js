@@ -74,6 +74,8 @@ class Stream {
     type: number;
     stream_id: number;
     content_type: number;
+    pcr: number;
+    first_pcr: number;
     dts: number;
     has_dts: boolean;
     first_pts: number;

@@ -33,7 +33,13 @@ type Payload = {
 
 export type Packet = {
   data: Uint8Array;
+  /** First PCR in the stream */
+  first_pcr: number;
+  /** Program clock reference, in 27 MHz ticks */
+  pcr: number | null;
+  /** Presentation time, in 90 kHz ticks */
   pts: number;
+  /** Decode time, in 90 kHz ticks */
   dts: number;
   frame_ticks:   number;
   program:       number;       // program number (1,2 ...)
@@ -50,6 +56,8 @@ export class Stream {
   public type: stream_type = 0xff;
   public stream_id = 0;     // MPEG stream id
   public content_type: content_type = 0;  // 1 - audio, 2 - video
+  public pcr: number | null = null;  // program clock reference, in 27 MHz ticks
+  public first_pcr = 0;     // first PCR
   public dts = 0;           // current MPEG stream DTS (presentation time for audio, decode time for video)
   public has_dts = false;
   public first_pts = 0;
@@ -75,6 +83,8 @@ export class Stream {
     }
     return {
       data,
+      pcr: this.pcr,
+      first_pcr: this.first_pcr,
       pts: payload.pts,
       dts: payload.dts,
       frame_ticks: payload.frame_ticks,
