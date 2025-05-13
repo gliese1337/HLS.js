@@ -63,6 +63,7 @@ export function decode_pes(
 
         if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
           s.first_pts = pts;
+          s.first_pcr = s.pcr ?? 0;
         }
 
         s.dts = pts;
@@ -80,6 +81,7 @@ export function decode_pes(
 
         if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
           s.first_pts = pts;
+          s.first_pcr = s.pcr ?? 0;
         }
 
         s.dts = dts;
