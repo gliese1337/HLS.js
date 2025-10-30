@@ -115,7 +115,7 @@ export class Bitstream {
 
     if (skip === 0) return tmp;
     
-    return (tmp * (2 ** skip)) + (view.getUint8(byteoffset + 4) >>> (8 - skip));
+    return (tmp * (2 ** skip)) | (view.getUint8(byteoffset + 4) >>> (8 - skip));
   }
 
   more_rbsp_data(): boolean {
