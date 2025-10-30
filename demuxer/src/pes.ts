@@ -95,7 +95,6 @@ export function decode_pes(
     len -= hlen;
 
     s.stream_id = stream_id;
-    s.frame_num++;
   }
 
   if (s.stream_id && s.content_type !== content_types.unknown) {
