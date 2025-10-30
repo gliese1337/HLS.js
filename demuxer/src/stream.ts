@@ -108,7 +108,6 @@ export class Stream {
       // finalize previously accumulated packet
       const packet = this.finalize();
       // start new packet
-      this.frame_num++;
       this.payload = {
         buffer: [data],
         buflen: len,
