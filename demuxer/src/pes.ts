@@ -16,10 +16,33 @@ function decode_ts(mem: DataView, p: number): number {
   );
 }
 
+function update_ts(
+  s: Stream, pts: number, dts: number,
+  pts_reset: (s: Stream, pts: number) => number,
+): number {
+  if (s.has_dts && dts > s.dts) { s.frame_ticks = dts - s.dts; }
+  if (pts > s.last_pts || !s.has_pts) { s.last_pts = pts; }
+  else {
+    const n = pts_reset(s, pts);
+    if (n !== 0) { return n; }
+  }
+
+  if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
+    s.first_pts = pts;
+    s.first_pcr = s.pcr ?? 0;
+  }
+
+  s.dts = pts;
+  s.has_dts = true;
+  s.has_pts = true;
+  return 0
+}
+
 export function decode_pes(
   mem: DataView, ptr: number, len: number,
   s: Stream, pstart: number,
   cb: (p: Packet) => void, copy: boolean,
+  pts_reset: (s: Stream, pts: number) => number,
 ): number {
   // PES (Packetized Elementary Stream)
   start: if (pstart) {
@@ -53,43 +76,23 @@ export function decode_pes(
     if (len < hlen) { return 24; } // PES Header Overflows File Length
     if (l > 0) { l -= hlen; }
 
+    let n = 0;
     switch (bitmap & 0xc0) {
       case 0x80: {  // PTS only
         if (hlen < 8) { break; }
         const pts = decode_ts(mem, ptr + 3);
-
-        if (s.has_dts && pts !== s.dts) { s.frame_ticks = pts - s.dts; }
-        if (pts > s.last_pts || !s.has_pts) { s.last_pts = pts; }
-
-        if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
-          s.first_pts = pts;
-          s.first_pcr = s.pcr ?? 0;
-        }
-
-        s.dts = pts;
-        s.has_dts = true;
-        s.has_pts = true;
+        n = update_ts(s, pts, pts, pts_reset);
         break;
       }
       case 0xc0: {  // PTS,DTS
         if (hlen < 13) { break; }
         const pts = decode_ts(mem, ptr + 3);
         const dts = decode_ts(mem, ptr + 8);
-
-        if (s.has_dts && dts > s.dts) { s.frame_ticks = dts - s.dts; }
-        if (pts > s.last_pts || !s.has_pts) { s.last_pts = pts; }
-
-        if (s.first_pts === 0 && s.frame_num === (s.content_type === content_types.video ? 1 : 0)) {
-          s.first_pts = pts;
-          s.first_pcr = s.pcr ?? 0;
-        }
-
-        s.dts = dts;
-        s.has_dts = true;
-        s.has_pts = true;
+        n = update_ts(s, dts, pts, pts_reset);
         break;
       }
     }
+    if (n !== 0) { return n; } 
 
     ptr += hlen;
     len -= hlen;

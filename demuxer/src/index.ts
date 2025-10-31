@@ -11,13 +11,22 @@ export { Packet, Stream, StreamTypes, ContentTypes, PACKET_LEN, ErrCodes };
 
 export type DemuxOptions = {
   copy?: boolean;
+  pts_reset?: (s: Stream, pts: number) => number,
 }
+
+// called when pts < s.last_pts
+function pts_reset(s: Stream, _pts: number): number {
+  s.last_pts += s.frame_ticks;
+  return 0;
+}
+
 export class TSDemuxer {
   private pmt = new PMT();
   private leftover = new Uint8Array(PACKET_LEN);
   private lview = new DataView(this.leftover.buffer);
   private ptr = 0;
   private copy: boolean;
+  private pts_reset: (s: Stream, pts: number) => number;
 
   // holds the offset into the input buffer
   // at which the last packet demuxing attempt
@@ -27,6 +36,7 @@ export class TSDemuxer {
 
   constructor(private cb: (p: Packet) => void, opts?: DemuxOptions) {
     this.copy = !!(opts?.copy);
+    this.pts_reset = opts?.pts_reset || pts_reset;
   }
 
   // Find the start of the next packet in a buffer
@@ -61,7 +71,7 @@ export class TSDemuxer {
       this.leftover.set(buffer.subarray(offset, offset + remainder), this.ptr);
       this.ptr = 0;
       this.offset = offset;
-      const n = demux_packet(pmt, this.lview, 0, pids, cb, true);
+      const n = demux_packet(pmt, this.lview, 0, pids, cb, true, this.pts_reset);
       if (n) { return n; } // invalid packet
     }
 
@@ -81,7 +91,7 @@ export class TSDemuxer {
       }
 
       // process one complete packet
-      const n = demux_packet(pmt, mem, ptr, pids, cb, copy);
+      const n = demux_packet(pmt, mem, ptr, pids, cb, copy, this.pts_reset);
       if (n) {
         this.ptr = 0;
         this.offset = ptr; 

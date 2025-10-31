@@ -14,6 +14,7 @@ export function demux_packet(
   pids: Map<number, Stream>,
   cb: (p: Packet) => void,
   copy: boolean,
+  pts_reset: (s: Stream, pts: number) => number,
 ): number {
   if (mem.getUint8(ptr) !== SYNC_BYTE) { return 2; } // invalid packet sync byte
 
@@ -63,5 +64,5 @@ export function demux_packet(
   if (s.type === 0xff) {
     return pmt.decode(mem, ptr, len, pids, s, payload_start);
   }
-  return decode_pes(mem, ptr, len, s, payload_start, cb, copy);
+  return decode_pes(mem, ptr, len, s, payload_start, cb, copy, pts_reset);
 }
